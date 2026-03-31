@@ -1,0 +1,18 @@
+*.jpg
+*.png
+*.bmp
+
+# Ignore Python bytecode and cache directories
+__pycache__/
+*.pyc
+# Ignore virtual environment directories
+venv/
+env/
+.venv/
+
+.pdf
+Examples/
+Camera Control PTP 2 Reference.pdf
+Camera Control PTP 3 Reference.pdf
+Camera Control PTP Example Instruction Manual.pdf
+README.pdf

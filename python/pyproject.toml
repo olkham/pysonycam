@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sony-camera-control"
+version = "1.0.0"
+description = "Python library for controlling Sony cameras via PTP/USB (Sony SDIO extensions)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Sony Camera Remote SDK Community"},
+]
+keywords = ["sony", "camera", "ptp", "usb", "remote", "control", "photography"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Capture",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "libusb1>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+
+[project.urls]
+Homepage = "https://github.com/example/sony-camera-control"
+Documentation = "https://github.com/example/sony-camera-control#readme"
+
+[tool.setuptools.packages.find]
+include = ["sony_camera_control*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
