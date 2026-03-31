@@ -434,33 +434,15 @@ class SonyCamera:
         # Wait for LiveView to be ready
         self._wait_for_liveview()
 
-        # Shutter sequence: press S1 (half-press) -> press S2 (full) -> release
-        # 1.5s delays match the reference scripts to ensure AF/AE settle and
-        # the camera registers each button state before the next command.
-        if not fast_mode:
-            self.control_device(DeviceProperty.S1_BUTTON, 0x0002) # Half-press S1
-            time.sleep(1.5)
-            self.control_device(DeviceProperty.S2_BUTTON, 0x0002) # Press S2 (full shutter)
-            time.sleep(1.5)
-            self.control_device(DeviceProperty.S2_BUTTON, 0x0001) # Release S2
-            time.sleep(1.5)
-            self.control_device(DeviceProperty.S1_BUTTON, 0x0001) # Release S1
-        else:
-            self.control_device(DeviceProperty.S1_BUTTON, 0x0002) # Half-press S1
-            time.sleep(0.1)
-            self.control_device(DeviceProperty.S2_BUTTON, 0x0002) # Press S2 (full shutter)
-            time.sleep(0.1)
-            self.control_device(DeviceProperty.S2_BUTTON, 0x0001) # Release S2
-            time.sleep(0.1)
-            self.control_device(DeviceProperty.S1_BUTTON, 0x0001) # Release S1
+        # Ensure no stale 0x8000 flag from a previous capture before firing the
+        # shutter.  If the flag is already set, wait for it to clear first.
+        self._wait_for_shooting_file_info_clear(timeout=timeout)
 
-        # Wait for capture completion (bit 15 = 0x8000 in ShootingFileInfo).
-        # Log initial value so we can detect stale flags from previous sessions.
-        initial_info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
-        initial_val = initial_info.current_value if isinstance(initial_info.current_value, int) else 0
-        logger.debug("SHOOTING_FILE_INFO before capture: 0x%04X", initial_val)
+        self._fire_shutter(fast=fast_mode)
 
+        # Now wait for SHOOTING_FILE_INFO bit 15 to be set (image ready on host).
         deadline = time.monotonic() + timeout
+        val = 0
         while time.monotonic() < deadline:
             info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
             val = info.current_value if isinstance(info.current_value, int) else 0
@@ -621,6 +603,270 @@ class SonyCamera:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _fire_shutter(self, fast: bool = False) -> None:
+        """Send the S1→S2→release sequence to the camera."""
+        delay = 0.1 if fast else 1.5
+        self.control_device(DeviceProperty.S1_BUTTON, 0x0002)
+        time.sleep(delay)
+        self.control_device(DeviceProperty.S2_BUTTON, 0x0002)
+        time.sleep(delay)
+        self.control_device(DeviceProperty.S2_BUTTON, 0x0001)
+        time.sleep(delay)
+        self.control_device(DeviceProperty.S1_BUTTON, 0x0001)
+
+    def _wait_for_shooting_file_info_clear(self, timeout: float = 10.0) -> None:
+        """Wait until SHOOTING_FILE_INFO bit 15 is clear (no stale image flag)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
+            val = info.current_value if isinstance(info.current_value, int) else 0
+            if not (val & 0x8000):
+                return
+            time.sleep(0.1)
+        # Non-fatal: log a warning and proceed — the camera may clear it after shutter.
+        logger.warning("SHOOTING_FILE_INFO did not clear before shutter (current=0x%04X)", val)
+
+    def _get_storage_ids(self) -> list[int]:
+        """Return the list of storage IDs reported by the camera."""
+        resp, data = self._transport.receive(PTPOpCode.GET_STORAGE_ID)
+        if resp.code != ResponseCode.OK:
+            return []
+        if len(data) < 4:
+            return []
+        count = struct.unpack_from("<I", data, 0)[0]
+        if count == 0:
+            return []
+        return list(struct.unpack_from(f"<{count}I", data, 4))
+
+    def _get_object_handles(
+        self,
+        storage_id: int = 0xFFFFFFFF,
+        format_code: int = 0x00000000,
+        parent_handle: int = 0xFFFFFFFF,
+    ) -> list[int]:
+        """Return the list of all object handles on the camera."""
+        resp, data = self._transport.receive(
+            PTPOpCode.GET_OBJECT_HANDLES,
+            [storage_id, format_code, parent_handle],
+        )
+        if resp.code != ResponseCode.OK:
+            logger.debug("GetObjectHandles returned 0x%04X — no objects or store unavailable", resp.code)
+            return []
+        if len(data) < 4:
+            return []
+        count = struct.unpack_from("<I", data, 0)[0]
+        if count == 0:
+            return []
+        return list(struct.unpack_from(f"<{count}I", data, 4))
+
+    # ------------------------------------------------------------------
+    # Burst capture
+    # ------------------------------------------------------------------
+
+    def burst_capture(
+        self,
+        count: int,
+        output_dir: Optional[Union[str, Path]] = None,
+        af_lock_time: float = 0.5,
+        timeout_per_shot: float = 30.0,
+    ) -> list[bytes]:
+        """Fire *count* shots as fast as possible and return all images.
+
+        S1 (half-press / AF lock) is held down for the entire burst so AF and
+        AE are solved only once.  S2 is pulsed per shot.  Each image is
+        downloaded immediately after the camera signals it is ready — Sony's
+        SDIO host-control protocol exposes only a single fixed object handle
+        (0xFFFFC001) so deferred bulk-download is not possible.
+
+        Typical cycle time after the first shot: ~1 s per frame.
+
+        Parameters
+        ----------
+        count : int
+            Number of shots to take.
+        output_dir : str or Path, optional
+            Directory to save images as ``burst_0000.jpg``, ``burst_0001.jpg``, …
+        af_lock_time : float
+            Seconds to hold S1 before the first S2 press so AF/AE can lock
+            (default 0.5 s).
+        timeout_per_shot : float
+            Maximum seconds to wait for any single shot to complete.
+
+        Returns
+        -------
+        list[bytes]
+            Raw image data for each shot, in order.
+        """
+        self.set_save_media(SaveMedia.HOST)
+        self._wait_for_property_value(DeviceProperty.SAVE_MEDIA, int(SaveMedia.HOST))
+
+        # LiveView must be active before we start.
+        self._wait_for_liveview()
+
+        # Clear any stale flag before the burst starts.
+        self._wait_for_shooting_file_info_clear(timeout=10.0)
+
+        out_path = Path(output_dir) if output_dir else None
+        if out_path:
+            out_path.mkdir(parents=True, exist_ok=True)
+
+        images: list[bytes] = []
+
+        # Hold S1 for the entire burst — AF/AE locks once and stays locked.
+        # Poll AF_LOCK_INDICATION instead of using a blind sleep so the first
+        # shot fires as soon as the camera reports focus is locked, and we still
+        # proceed even if the camera can't lock (e.g. MF mode).
+        self.control_device(DeviceProperty.S1_BUTTON, 0x0002)
+        logger.info("S1 held — waiting for AF lock (max %.1fs)…", af_lock_time)
+        deadline = time.monotonic() + af_lock_time
+        while time.monotonic() < deadline:
+            try:
+                af = self.get_property(DeviceProperty.AF_LOCK_INDICATION)
+                if af.current_value:
+                    logger.info("AF locked")
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
+        else:
+            logger.warning("AF did not lock within %.1fs — proceeding anyway", af_lock_time)
+
+        try:
+            for i in range(count):
+                logger.info("Burst shot %d/%d", i + 1, count)
+
+                # Ensure flag from the previous download has cleared.
+                if i > 0:
+                    self._wait_for_shooting_file_info_clear(timeout=timeout_per_shot)
+
+                # Pulse S2 to fire the shutter (S1 already held).
+                self.control_device(DeviceProperty.S2_BUTTON, 0x0002)
+                time.sleep(0.1)
+                self.control_device(DeviceProperty.S2_BUTTON, 0x0001)
+
+                # Wait for SHOOTING_FILE_INFO bit 15 (image ready on host).
+                deadline = time.monotonic() + timeout_per_shot
+                val = 0
+                while time.monotonic() < deadline:
+                    info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
+                    val = info.current_value if isinstance(info.current_value, int) else 0
+                    if val & 0x8000:
+                        break
+                    time.sleep(0.1)
+                else:
+                    raise SonyCameraError(
+                        f"Burst shot {i + 1}/{count} timed out waiting for image"
+                    )
+
+                logger.info("Shot %d ready, downloading…", i + 1)
+
+                self.get_object_info(SHOT_OBJECT_HANDLE)
+                data = self.get_object(SHOT_OBJECT_HANDLE)
+                images.append(data)
+                logger.info("Downloaded shot %d/%d  %d bytes", i + 1, count, len(data))
+
+                if out_path:
+                    filename = out_path / f"burst_{i:04d}.jpg"
+                    filename.write_bytes(data)
+                    logger.info("Saved → %s", filename)
+
+        finally:
+            # Always release S1, even if an exception occurs mid-burst.
+            self.control_device(DeviceProperty.S1_BUTTON, 0x0001)
+
+        logger.info("Burst complete — %d image(s)", len(images))
+        return images
+
+    def rapid_fire(
+        self,
+        count: int,
+        output_dir: Optional[Union[str, Path]] = None,
+        timeout_per_shot: float = 30.0,
+    ) -> list[bytes]:
+        """Fire *count* shots using a full S1→S2 cycle per shot.
+
+        Unlike :meth:`burst_capture` (which holds S1 for the entire burst),
+        this method performs a complete shutter cycle for every frame:
+
+        1. S1 press  (half-press — autofocus + metering)
+        2. S2 press  (shutter fires)
+        3. S2 release
+        4. S1 release
+        5. Wait for the image, download it
+        6. Repeat
+
+        The delays are kept to the minimum (200 ms S2 hold, matching the Sony
+        C++ SDK example).  This avoids a state where the camera "hangs" after
+        the first shot because S1 was never released between shots.
+
+        Parameters
+        ----------
+        count : int
+            Number of shots to take.
+        output_dir : str or Path, optional
+            Directory to save images as ``rapid_0000.jpg``, …
+        timeout_per_shot : float
+            Maximum seconds to wait for each image to appear.
+
+        Returns
+        -------
+        list[bytes]
+            Raw image data for each shot, in order.
+        """
+        self.set_save_media(SaveMedia.HOST)
+        self._wait_for_property_value(DeviceProperty.SAVE_MEDIA, int(SaveMedia.HOST))
+        self._wait_for_liveview()
+        self._wait_for_shooting_file_info_clear(timeout=10.0)
+
+        out_path = Path(output_dir) if output_dir else None
+        if out_path:
+            out_path.mkdir(parents=True, exist_ok=True)
+
+        images: list[bytes] = []
+
+        for i in range(count):
+            logger.info("Rapid-fire shot %d/%d", i + 1, count)
+
+            # --- Full shutter cycle ---
+            self.control_device(DeviceProperty.S1_BUTTON, 0x0002)   # S1 press
+            time.sleep(0.3)                                         # AF + AE settle
+            self.control_device(DeviceProperty.S2_BUTTON, 0x0002)   # S2 press
+            time.sleep(0.2)                                         # matches C++ SDK
+            self.control_device(DeviceProperty.S2_BUTTON, 0x0001)   # S2 release
+            time.sleep(0.1)
+            self.control_device(DeviceProperty.S1_BUTTON, 0x0001)   # S1 release
+
+            # --- Wait for image ---
+            deadline = time.monotonic() + timeout_per_shot
+            while time.monotonic() < deadline:
+                info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
+                val = info.current_value if isinstance(info.current_value, int) else 0
+                if val & 0x8000:
+                    break
+                time.sleep(0.05)
+            else:
+                raise SonyCameraError(
+                    f"Shot {i + 1}/{count} timed out waiting for image"
+                )
+
+            logger.info("Shot %d ready — downloading…", i + 1)
+            self.get_object_info(SHOT_OBJECT_HANDLE)
+            data = self.get_object(SHOT_OBJECT_HANDLE)
+            images.append(data)
+            logger.info("Downloaded shot %d/%d  (%d bytes)", i + 1, count, len(data))
+
+            if out_path:
+                fname = out_path / f"rapid_{i:04d}.jpg"
+                fname.write_bytes(data)
+                logger.info("Saved → %s", fname)
+
+            # Let the camera clear the stale flag before next shot.
+            if i < count - 1:
+                self._wait_for_shooting_file_info_clear(timeout=10.0)
+
+        logger.info("Rapid-fire complete — %d image(s)", len(images))
+        return images
 
     def _wait_for_property_enabled(
         self, prop_code: int, timeout: float = 10.0
