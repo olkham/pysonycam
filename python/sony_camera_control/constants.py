@@ -189,10 +189,14 @@ class DeviceProperty(IntEnum):
     WIRELESS_FLASH = 0xD262
     LIVEVIEW_MODE = 0xD26A
 
+    # Still Capture Mode / Drive Mode (same register as OPERATING_MODE)
+    STILL_CAPTURE_MODE = 0x5013  # alias — drive mode (Normal, Cont. Hi, etc.)
+
     # Button controls (used with ControlDevice)
     S1_BUTTON = 0xD2C1
     S2_BUTTON = 0xD2C2
     AE_LOCK = 0xD2C3
+    REQUEST_ONE_SHOOTING = 0xD2C7
     MOVIE_REC = 0xD2C8
     AF_LOCK = 0xD2C9
     MEDIA_FORMAT = 0xD2CA
@@ -336,6 +340,23 @@ class MeteringMode(IntEnum):
     SPOT_STANDARD = 0x8004
     SPOT_LARGE = 0x8005
     HIGHLIGHT = 0x8006
+
+
+class DriveMode(IntEnum):
+    """Still Capture Mode / Drive Mode values (property 0x5013)."""
+    SINGLE = 0x0001
+    CONTINUOUS_HI = 0x0002
+    CONTINUOUS_HI_PLUS = 0x8010
+    CONTINUOUS_HI_LIVE = 0x8011
+    CONTINUOUS_LO = 0x8012
+    CONTINUOUS = 0x8013
+    CONTINUOUS_SPEED_PRIORITY = 0x8014
+    CONTINUOUS_MID = 0x8015
+    CONTINUOUS_MID_LIVE = 0x8016
+    CONTINUOUS_LO_LIVE = 0x8017
+    SELF_TIMER_5 = 0x8003
+    SELF_TIMER_10 = 0x8004
+    SELF_TIMER_2 = 0x8005
 
 
 class BatteryLevel(IntEnum):

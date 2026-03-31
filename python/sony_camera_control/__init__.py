@@ -18,6 +18,7 @@ Basic usage::
 from sony_camera_control.camera import SonyCamera
 from sony_camera_control.constants import (
     DeviceProperty,
+    DriveMode,
     ExposureMode,
     OperatingMode,
     WhiteBalance,
@@ -38,6 +39,7 @@ __version__ = "1.0.0"
 __all__ = [
     "SonyCamera",
     "DeviceProperty",
+    "DriveMode",
     "ExposureMode",
     "OperatingMode",
     "WhiteBalance",

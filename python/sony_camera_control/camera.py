@@ -43,6 +43,7 @@ from typing import Iterator, Optional, Union
 
 from sony_camera_control.constants import (
     DeviceProperty,
+    DriveMode,
     ExposureMode,
     LiveViewMode,
     OperatingMode,
@@ -866,6 +867,147 @@ class SonyCamera:
                 self._wait_for_shooting_file_info_clear(timeout=10.0)
 
         logger.info("Rapid-fire complete — %d image(s)", len(images))
+        return images
+
+    # ------------------------------------------------------------------
+    # Continuous-burst capture  (native fps, deferred download)
+    # ------------------------------------------------------------------
+
+    def set_drive_mode(self, mode: Union[int, DriveMode]) -> None:
+        """Set the drive mode (single, continuous Hi/Lo, self-timer, …).
+
+        This writes to the Still Capture Mode property (0x5013).
+        The camera must be in still-shooting mode.
+
+        Parameters
+        ----------
+        mode : int or DriveMode
+            A :class:`DriveMode` value, e.g. ``DriveMode.CONTINUOUS_HI``.
+        """
+        code = DeviceProperty.STILL_CAPTURE_MODE
+        self.set_property(code, int(mode), size=2)
+        logger.info("Drive mode set to 0x%04X", int(mode))
+
+    def continuous_burst(
+        self,
+        hold_seconds: float = 2.0,
+        output_dir: Optional[Union[str, Path]] = None,
+        download_timeout: float = 60.0,
+    ) -> list[bytes]:
+        """Shoot a continuous burst at native fps, then download all images.
+
+        This leverages the camera's hardware continuous-shooting drive mode.
+        S2 is **held down** for *hold_seconds*, letting the camera fire at its
+        full mechanical/electronic burst rate (often 5–20 fps depending on
+        model and drive-mode setting).  After the burst, all queued images are
+        downloaded one-by-one from the camera's transfer buffer.
+
+        **Prerequisites** — before calling this method:
+
+        * Set the camera drive mode to a continuous-shooting variant, e.g.::
+
+              camera.set_drive_mode(DriveMode.CONTINUOUS_HI)
+
+          The camera must already be in this mode or the shutter will only
+          fire once.
+
+        Sequence
+        --------
+        1. Set save-media to HOST
+        2. S1 press  (AF + AE lock)
+        3. Wait for AF lock
+        4. S2 press  (camera starts continuous shooting)
+        5. Hold for *hold_seconds*
+        6. S2 release → S1 release
+        7. Poll ``SHOOTING_FILE_INFO`` and download every queued image
+           via ``GetObjectInfo`` + ``GetObject(0xFFFFC001)`` until the count
+           reaches zero.
+
+        Parameters
+        ----------
+        hold_seconds : float
+            How long to hold S2 down (burst duration). 1.0 s at 10 fps ≈ 10 shots.
+        output_dir : str or Path, optional
+            Directory to save images as ``cont_0000.jpg``, …
+        download_timeout : float
+            Maximum total seconds to spend downloading all queued images.
+
+        Returns
+        -------
+        list[bytes]
+            Raw image data for each shot, in capture order.
+        """
+        self.set_save_media(SaveMedia.HOST)
+        self._wait_for_property_value(DeviceProperty.SAVE_MEDIA, int(SaveMedia.HOST))
+        self._wait_for_liveview()
+        self._wait_for_shooting_file_info_clear(timeout=10.0)
+
+        out_path = Path(output_dir) if output_dir else None
+        if out_path:
+            out_path.mkdir(parents=True, exist_ok=True)
+
+        # --- S1 press → AF lock ---
+        self.control_device(DeviceProperty.S1_BUTTON, 0x0002)
+        logger.info("S1 held — waiting for AF lock…")
+        af_deadline = time.monotonic() + 3.0
+        while time.monotonic() < af_deadline:
+            try:
+                af = self.get_property(DeviceProperty.AF_LOCK_INDICATION)
+                if af.current_value:
+                    logger.info("AF locked")
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
+        else:
+            logger.warning("AF did not lock — proceeding anyway")
+
+        # --- S2 hold → burst ---
+        logger.info("S2 held — burst for %.1fs…", hold_seconds)
+        self.control_device(DeviceProperty.S2_BUTTON, 0x0002)
+        time.sleep(hold_seconds)
+        self.control_device(DeviceProperty.S2_BUTTON, 0x0001)
+        logger.info("S2 released")
+        time.sleep(0.1)
+        self.control_device(DeviceProperty.S1_BUTTON, 0x0001)
+        logger.info("S1 released")
+
+        # --- Download all queued images ---
+        images: list[bytes] = []
+        dl_deadline = time.monotonic() + download_timeout
+        idx = 0
+
+        while time.monotonic() < dl_deadline:
+            info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
+            val = info.current_value if isinstance(info.current_value, int) else 0
+
+            if val & 0x8000:
+                # Image ready — download it
+                self.get_object_info(SHOT_OBJECT_HANDLE)
+                data = self.get_object(SHOT_OBJECT_HANDLE)
+                images.append(data)
+                logger.info("Downloaded image %d  (%d bytes)", idx + 1, len(data))
+
+                if out_path:
+                    fname = out_path / f"cont_{idx:04d}.jpg"
+                    fname.write_bytes(data)
+                    logger.info("Saved → %s", fname)
+                idx += 1
+                # Immediately check for more images (don't sleep)
+                continue
+
+            # No image with MSB set.  Check if any files remain (lower bits).
+            remaining = val & 0x7FFF
+            if remaining == 0 and idx > 0:
+                # All images downloaded.
+                break
+
+            # Files still being processed by the camera — wait a bit.
+            time.sleep(0.05)
+        else:
+            logger.warning("Download timed out after %d image(s)", idx)
+
+        logger.info("Continuous burst complete — %d image(s)", len(images))
         return images
 
     def _wait_for_property_enabled(
