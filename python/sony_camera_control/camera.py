@@ -879,18 +879,58 @@ class SonyCamera:
         This writes to the Still Capture Mode property (0x5013).
         The camera must be in still-shooting mode.
 
+        .. note::
+
+           :meth:`set_mode` also writes to this register (0x5013) and will
+           reset the drive mode to Single.  Always call ``set_drive_mode()``
+           **after** ``set_mode("still")``.
+
         Parameters
         ----------
         mode : int or DriveMode
             A :class:`DriveMode` value, e.g. ``DriveMode.CONTINUOUS_HI``.
         """
         code = DeviceProperty.STILL_CAPTURE_MODE
-        self.set_property(code, int(mode), size=2)
-        logger.info("Drive mode set to 0x%04X", int(mode))
+        val = int(mode)
+
+        # Wait for the property to become writable (the camera may still be
+        # settling after a set_mode call).
+        self._wait_for_property_enabled(code, timeout=5.0)
+        time.sleep(0.3)
+
+        # Write with size=4 — this matches how set_mode writes to the
+        # same register and is what the camera expects.
+        self.set_property(code, val, size=4)
+
+        # Verify the camera accepted it — retry once if it didn't take.
+        time.sleep(0.3)
+        info = self.get_property(code)
+        actual = info.current_value if isinstance(info.current_value, int) else None
+        if actual != val:
+            logger.info(
+                "Drive mode first attempt: sent 0x%04X, got 0x%04X — retrying",
+                val, actual or 0,
+            )
+            time.sleep(0.5)
+            self._wait_for_property_enabled(code, timeout=5.0)
+            self.set_property(code, val, size=4)
+            time.sleep(0.3)
+            info = self.get_property(code)
+            actual = info.current_value if isinstance(info.current_value, int) else None
+
+        if actual != val:
+            logger.warning(
+                "Drive mode NOT accepted: sent 0x%04X, camera reports 0x%04X. "
+                "You may need to set it on the camera body.",
+                val, actual or 0,
+            )
+        else:
+            logger.info("Drive mode set to 0x%04X (confirmed)", val)
 
     def continuous_burst(
         self,
         hold_seconds: float = 2.0,
+        drive_mode: Union[int, DriveMode] = DriveMode.CONTINUOUS_HI,
         output_dir: Optional[Union[str, Path]] = None,
         download_timeout: float = 60.0,
     ) -> list[bytes]:
@@ -902,24 +942,17 @@ class SonyCamera:
         model and drive-mode setting).  After the burst, all queued images are
         downloaded one-by-one from the camera's transfer buffer.
 
-        **Prerequisites** — before calling this method:
-
-        * Set the camera drive mode to a continuous-shooting variant, e.g.::
-
-              camera.set_drive_mode(DriveMode.CONTINUOUS_HI)
-
-          The camera must already be in this mode or the shutter will only
-          fire once.
+        The drive mode is set automatically by this method.  You do **not**
+        need to call :meth:`set_drive_mode` first.
 
         Sequence
         --------
-        1. Set save-media to HOST
+        1. Set save-media to HOST, set drive mode to *drive_mode*
         2. S1 press  (AF + AE lock)
-        3. Wait for AF lock
-        4. S2 press  (camera starts continuous shooting)
-        5. Hold for *hold_seconds*
-        6. S2 release → S1 release
-        7. Poll ``SHOOTING_FILE_INFO`` and download every queued image
+        3. S2 press  (camera starts continuous shooting)
+        4. Hold for *hold_seconds*
+        5. S2 release → S1 release
+        6. Poll ``SHOOTING_FILE_INFO`` and download every queued image
            via ``GetObjectInfo`` + ``GetObject(0xFFFFC001)`` until the count
            reaches zero.
 
@@ -927,6 +960,9 @@ class SonyCamera:
         ----------
         hold_seconds : float
             How long to hold S2 down (burst duration). 1.0 s at 10 fps ≈ 10 shots.
+        drive_mode : int or DriveMode
+            Which continuous-shooting variant to use (default:
+            ``DriveMode.CONTINUOUS_HI``).
         output_dir : str or Path, optional
             Directory to save images as ``cont_0000.jpg``, …
         download_timeout : float
@@ -942,25 +978,37 @@ class SonyCamera:
         self._wait_for_liveview()
         self._wait_for_shooting_file_info_clear(timeout=10.0)
 
+        # Set the drive mode — this MUST happen after set_mode("still")
+        # because set_mode writes 0x01 (Normal/Single) to the same register.
+        self.set_drive_mode(drive_mode)
+
         out_path = Path(output_dir) if output_dir else None
         if out_path:
             out_path.mkdir(parents=True, exist_ok=True)
 
         # --- S1 press → AF lock ---
         self.control_device(DeviceProperty.S1_BUTTON, 0x0002)
-        logger.info("S1 held — waiting for AF lock…")
+        logger.info("S1 held — waiting for AF…")
+
+        # Poll Focus Indication (0xD213) which is more reliable than
+        # AF_LOCK_INDICATION for deciding when to fire.
+        # 0x02 = focused (AF-S), 0x06 = focused (AF-C)
         af_deadline = time.monotonic() + 3.0
+        af_ok = False
         while time.monotonic() < af_deadline:
             try:
-                af = self.get_property(DeviceProperty.AF_LOCK_INDICATION)
-                if af.current_value:
-                    logger.info("AF locked")
+                fi = self.get_property(DeviceProperty.AF_STATUS)
+                fv = fi.current_value if isinstance(fi.current_value, int) else 0
+                if fv in (0x02, 0x05, 0x06):
+                    logger.info("Focus confirmed (0x%02X)", fv)
+                    af_ok = True
                     break
             except Exception:
                 pass
             time.sleep(0.05)
-        else:
-            logger.warning("AF did not lock — proceeding anyway")
+
+        if not af_ok:
+            logger.warning("AF focus not confirmed — burst may be limited")
 
         # --- S2 hold → burst ---
         logger.info("S2 held — burst for %.1fs…", hold_seconds)
@@ -976,6 +1024,10 @@ class SonyCamera:
         images: list[bytes] = []
         dl_deadline = time.monotonic() + download_timeout
         idx = 0
+
+        # Short settle time — the camera needs a moment after S2 release
+        # to finalize the last images in the queue.
+        time.sleep(0.3)
 
         while time.monotonic() < dl_deadline:
             info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)

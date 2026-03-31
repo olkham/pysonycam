@@ -343,20 +343,24 @@ class MeteringMode(IntEnum):
 
 
 class DriveMode(IntEnum):
-    """Still Capture Mode / Drive Mode values (property 0x5013)."""
-    SINGLE = 0x0001
-    CONTINUOUS_HI = 0x0002
-    CONTINUOUS_HI_PLUS = 0x8010
-    CONTINUOUS_HI_LIVE = 0x8011
-    CONTINUOUS_LO = 0x8012
-    CONTINUOUS = 0x8013
-    CONTINUOUS_SPEED_PRIORITY = 0x8014
-    CONTINUOUS_MID = 0x8015
-    CONTINUOUS_MID_LIVE = 0x8016
-    CONTINUOUS_LO_LIVE = 0x8017
-    SELF_TIMER_5 = 0x8003
-    SELF_TIMER_10 = 0x8004
-    SELF_TIMER_2 = 0x8005
+    """Still Capture Mode / Drive Mode values (property 0x5013).
+
+    Values use the v3 (32-bit) encoding where the upper 16 bits indicate
+    the mode group (0x0001 = continuous, 0x0003 = self-timer, etc.).
+    """
+    SINGLE = 0x00000001
+    CONTINUOUS_HI = 0x00010002
+    CONTINUOUS_HI_PLUS = 0x00018010
+    CONTINUOUS_HI_LIVE = 0x00018011
+    CONTINUOUS_LO = 0x00018012
+    CONTINUOUS = 0x00018013
+    CONTINUOUS_SPEED_PRIORITY = 0x00018014
+    CONTINUOUS_MID = 0x00018015
+    CONTINUOUS_MID_LIVE = 0x00018016
+    CONTINUOUS_LO_LIVE = 0x00018017
+    SELF_TIMER_5 = 0x00038003
+    SELF_TIMER_10 = 0x00038004
+    SELF_TIMER_2 = 0x00038005
 
 
 class BatteryLevel(IntEnum):
