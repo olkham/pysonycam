@@ -346,6 +346,45 @@ from pysonycam.constants import SDI_VERSION_V2
 camera = SonyCamera(version=SDI_VERSION_V2)
 ```
 
+## SDIO Protocol Versions: v2 vs v3
+
+The Sony SDIO extension to PTP comes in two versions. **This library defaults to v3** — it is both feature-complete and backward-negotiated at connect time. Older cameras that only support v2 will fail the version handshake and you should pass `version=SDI_VERSION_V2` explicitly.
+
+| Feature | v2 (0x00C8) | v3 (0x012C) |
+|---------|-------------|-------------|
+| **Enumeration sets** | Single set of supported values per property | **Dual enumeration sets** — properties can expose a second group of valid values |
+| **Storage management** | Not supported | Full storage API: `GetStorageID`, `GetStorageInfo`, `GetObjectHandles`, `DeleteObject` |
+| **Zoom** | `ZOOM_SETTING` only | Enhanced: `ZOOM_SCALE` (0xD25C), `ZOOM_OPTIC` (0xD25D), `ZOOM` control (0xD2DD) |
+| **Focus magnify** | 8 separate directional commands | Single consolidated command (`FOCUS_MAGNIFY = 0xD254`) |
+| **Image format** | Basic `COMPRESSION_SETTING` | `JPEG_QUALITY` (0xD252), `FILE_FORMAT` (0xD253), `IMAGE_FILE_FORMAT` (0x5004) |
+| **Creative controls** | Not available | `PICTURE_PROFILE` (0xD23F), `CREATIVE_STYLE` (0xD240) |
+| **Focus area** | Basic modes (Wide, Zone, Center, Flex) | Adds `FOCUS_AREA_XY` (0xD2DC) for coordinate-based placement |
+| **Movie format code** | 0xD219 | **Changed to 0xD241** |
+| **Battery** | `BATTERY_CHARGE` + `BATTERY_LEVEL` | `BATTERY_LEVEL` only |
+| **Contents transfer mode** | Not supported | `SDIOSetContentsTransferMode` (0x9212) |
+
+### Parser differences
+
+The most impactful protocol change is in how **Enumeration-Form** device property datasets are structured. In v2 each property has a single list of supported values. In v3, **every** Enumeration-Form property includes a second count field followed by a second list — even if that second list is empty (count = 0). Parsers that don't consume this second block will misalign the byte stream and fail to parse subsequent properties.
+
+Our parser handles this correctly by always reading and consuming the second enumeration block regardless of the negotiated version:
+
+```python
+# parse_device_prop_info() in parser.py — excerpt
+elif info.form_flag == 2:
+    num_values = struct.unpack_from("<H", data, offset)[0]; offset += 2
+    for _ in range(num_values):
+        val, sz = _read_scalar(data, offset, scalar_dt)
+        info.supported_values.append(val)
+        offset += sz
+
+    # v3: always has a second enumeration set (may be count=0)
+    num_values_2nd = struct.unpack_from("<H", data, offset)[0]; offset += 2
+    for _ in range(num_values_2nd):
+        val, sz = _read_scalar(data, offset, scalar_dt)
+        offset += sz   # consumed but not exposed
+```
+
 ## Relationship to C/C++ SDK
 
 This Python library is a clean-room reimplementation of the protocol used in Sony's Camera Remote Command SDK examples (located in `CameraRemoteCommadExamples/`):

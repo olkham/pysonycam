@@ -16,4 +16,5 @@ tests/test_camera.py
 tests/test_constants.py
 tests/test_exceptions.py
 tests/test_format.py
+tests/test_hardware.py
 tests/test_parser.py

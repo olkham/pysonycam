@@ -168,6 +168,35 @@ class PTPTransport:
         self._transaction_id = 0
         logger.info("Disconnected from camera")
 
+    def reset_device(self) -> None:
+        """Send a USB device reset to clear stale state."""
+        if self._handle is not None:
+            try:
+                self._handle.releaseInterface(self._interface)
+            except usb1.USBError:
+                pass
+            try:
+                self._handle.resetDevice()
+            except usb1.USBError:
+                pass
+            logger.info("USB device reset")
+
+    def clear_halt(self) -> None:
+        """Clear stall/halt condition on bulk endpoints.
+
+        Call this after a LIBUSB_ERROR_PIPE (-9) to recover without a
+        full device reset or cable replug.
+        """
+        if self._handle is None:
+            return
+        for ep in (self._ep_out, self._ep_in):
+            if ep:
+                try:
+                    self._handle.clearHalt(ep)
+                    logger.debug("Cleared halt on endpoint 0x%02X", ep)
+                except usb1.USBError:
+                    pass
+
     @property
     def is_connected(self) -> bool:
         return self._handle is not None

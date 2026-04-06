@@ -64,6 +64,7 @@ from pysonycam.exceptions import (
     AuthenticationError,
     PropertyError,
     SonyCameraError,
+    TimeoutError,
     TransactionError,
 )
 from pysonycam.parser import (
@@ -125,9 +126,24 @@ class SonyCamera:
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """Open a USB connection and start a PTP session."""
+        """Open a USB connection and start a PTP session.
+
+        If the initial connection fails (e.g. stale session from a crash),
+        a USB device reset is attempted before retrying.
+        """
         self._transport.connect()
-        self._open_session()
+        try:
+            self._open_session()
+        except (TransactionError, TimeoutError) as exc:
+            logger.warning("Session open failed (%s), resetting USB device...", exc)
+            try:
+                self._transport.reset_device()
+            except Exception:
+                pass
+            time.sleep(2.0)
+            self._transport.disconnect()
+            self._transport.connect()
+            self._open_session()
 
     def disconnect(self) -> None:
         """Close the PTP session and USB connection."""
@@ -160,6 +176,40 @@ class SonyCamera:
         """Send PTP CloseSession command."""
         self._transport.send(PTPOpCode.CLOSE_SESSION)
         logger.info("PTP session closed")
+
+    def sdio_open_session(
+        self, session_id: int = 1, function_mode: int = 0
+    ) -> None:
+        """Open a Sony SDIO session with a specific function mode.
+
+        Uses SDIO_OpenSession (0x9210) instead of standard PTP OpenSession.
+        This is required to enable Content Transfer Mode on the camera.
+
+        Parameters
+        ----------
+        session_id : int
+            PTP session ID (default 1).
+        function_mode : int
+            0 = Remote Control Mode (default),
+            1 = Content Transfer Mode,
+            2 = Remote Control with Transfer Mode (model-dependent).
+        """
+        # Reset transport state for new session (same as standard OpenSession)
+        self._transport._session_id = 0
+        self._transport._transaction_id = 0
+
+        resp = self._transport.send(
+            SDIOOpCode.SDIO_OPEN_SESSION, [session_id, function_mode]
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"SDIO_OpenSession failed: 0x{resp.code:04X}", resp.code
+            )
+        logger.info(
+            "SDIO session opened (id=%d, function_mode=%d)",
+            session_id,
+            function_mode,
+        )
 
     def authenticate(self) -> None:
         """Perform the Sony SDIO authentication handshake.

@@ -1,0 +1,30 @@
+# Camera Control PTP Example Instruction Manual
+
+Converted from `Camera Control PTP Example Instruction Manual.pdf` (24 pages)
+
+## Pages
+
+- [Page 1](camera_control_ptp_example_instruction_manual/page_0001.md)
+- [Page 2](camera_control_ptp_example_instruction_manual/page_0002.md)
+- [Page 3](camera_control_ptp_example_instruction_manual/page_0003.md)
+- [Page 4](camera_control_ptp_example_instruction_manual/page_0004.md)
+- [Page 5](camera_control_ptp_example_instruction_manual/page_0005.md)
+- [Page 6](camera_control_ptp_example_instruction_manual/page_0006.md)
+- [Page 7](camera_control_ptp_example_instruction_manual/page_0007.md)
+- [Page 8](camera_control_ptp_example_instruction_manual/page_0008.md)
+- [Page 9](camera_control_ptp_example_instruction_manual/page_0009.md)
+- [Page 10](camera_control_ptp_example_instruction_manual/page_0010.md)
+- [Page 11](camera_control_ptp_example_instruction_manual/page_0011.md)
+- [Page 12](camera_control_ptp_example_instruction_manual/page_0012.md)
+- [Page 13](camera_control_ptp_example_instruction_manual/page_0013.md)
+- [Page 14](camera_control_ptp_example_instruction_manual/page_0014.md)
+- [Page 15](camera_control_ptp_example_instruction_manual/page_0015.md)
+- [Page 16](camera_control_ptp_example_instruction_manual/page_0016.md)
+- [Page 17](camera_control_ptp_example_instruction_manual/page_0017.md)
+- [Page 18](camera_control_ptp_example_instruction_manual/page_0018.md)
+- [Page 19](camera_control_ptp_example_instruction_manual/page_0019.md)
+- [Page 20](camera_control_ptp_example_instruction_manual/page_0020.md)
+- [Page 21](camera_control_ptp_example_instruction_manual/page_0021.md)
+- [Page 22](camera_control_ptp_example_instruction_manual/page_0022.md)
+- [Page 23](camera_control_ptp_example_instruction_manual/page_0023.md)
+- [Page 24](camera_control_ptp_example_instruction_manual/page_0024.md)
