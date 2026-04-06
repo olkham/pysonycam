@@ -31,6 +31,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = [
+    "opencv-python>=4.5",
+    "numpy>=1.21",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

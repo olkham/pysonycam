@@ -19,8 +19,18 @@ import time
 import logging
 from pathlib import Path
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    print(
+        "ERROR: This example requires opencv-python and numpy.\n"
+        "Install them with:\n\n"
+        "    pip install opencv-python numpy\n\n"
+        "Or, if you used the project's optional extras:\n\n"
+        '    pip install -e ".[gui]"\n'
+    )
+    raise SystemExit(1)
 
 from sony_camera_control import SonyCamera, DriveMode
 from sony_camera_control.constants import (

@@ -1,0 +1,5 @@
+libusb1>=3.0.0
+
+# Optional: required for live_viewfinder.py
+opencv-python>=4.5
+numpy>=1.21

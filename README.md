@@ -28,7 +28,6 @@ Built from the [Sony Camera Remote Command SDK](https://developer.sony.com/) C/C
 ### Quick Install (pip)
 
 ```bash
-cd python/
 pip install -e .
 ```
 
@@ -36,14 +35,12 @@ pip install -e .
 
 **Linux / macOS:**
 ```bash
-cd python/
 chmod +x install.sh
 ./install.sh
 ```
 
 **Windows:**
 ```cmd
-cd python\
 install.bat
 ```
 
@@ -67,11 +64,17 @@ brew install libusb
 ```
 
 #### Windows
-Install a WinUSB driver for your camera using [Zadig](https://zadig.akeo.ie/):
-1. Connect your Sony camera
-2. Run Zadig
-3. Select your camera device
-4. Install the WinUSB driver
+You must replace the camera's driver with WinUSB using [Zadig](https://zadig.akeo.ie/).  
+Use **Zadig v2.7** — newer versions may fail to install the driver. Download v2.7 from [here](https://github.com/pbatard/libwdi/releases/tag/v1.4.1).
+
+1. Connect your Sony camera and set it to **PC Remote** mode
+2. **Right-click** `zadig.exe` → **Run as administrator**
+3. In Zadig, go to **Options → List All Devices**
+4. Select your Sony camera from the dropdown (vendor ID `054C`)
+5. Set the target driver to **WinUSB** and click **Replace Driver**
+
+> **Note:** This replaces the MTP driver. To restore it later:  
+> Device Manager → right-click your camera → Update Driver → Search Automatically
 
 ## Quick Start
 
@@ -264,25 +267,35 @@ Log levels:
 ## Project Structure
 
 ```
-python/
-├── sony_camera_control/
-│   ├── __init__.py         # Package exports
-│   ├── camera.py           # High-level SonyCamera API
-│   ├── ptp.py              # PTP/USB transport layer
-│   ├── parser.py           # Binary protocol parser
-│   ├── constants.py        # All opcodes, property codes, enums
-│   └── exceptions.py       # Custom exception hierarchy
-├── examples/
-│   ├── basic_usage.py      # Read properties
-│   ├── capture_photo.py    # Take a photo
-│   ├── liveview_stream.py  # Stream LiveView frames
-│   ├── change_settings.py  # Modify camera settings
-│   └── zoom_control.py     # Zoom in/out
-├── pyproject.toml           # Package metadata & build config
-├── requirements.txt         # Dependencies
-├── install.sh               # Linux/macOS setup script
-├── install.bat              # Windows setup script
-└── README.md                # This file
+├── sony_camera_control/        # Python package
+│   ├── __init__.py             # Package exports
+│   ├── camera.py               # High-level SonyCamera API
+│   ├── ptp.py                  # PTP/USB transport layer
+│   ├── parser.py               # Binary protocol parser
+│   ├── constants.py            # All opcodes, property codes, enums
+│   ├── format.py               # Human-readable value formatting
+│   └── exceptions.py           # Custom exception hierarchy
+├── examples/                   # Python usage examples
+│   ├── basic_usage.py          # Read all properties
+│   ├── capture_photo.py        # Take a photo
+│   ├── burst_capture.py        # Multi-shot burst capture
+│   ├── continuous_burst.py     # Hardware-rate continuous burst
+│   ├── rapid_fire.py           # Rapid single-shot cycle
+│   ├── interactive_shutter.py  # Interactive keyboard-driven capture
+│   ├── live_viewfinder.py      # OpenCV LiveView + capture controls
+│   ├── liveview_stream.py      # Stream LiveView frames to disk
+│   ├── change_settings.py      # Modify camera settings
+│   └── zoom_control.py         # Zoom in/out
+├── CameraRemoteCommadExamples/ # Sony C/C++ SDK reference examples
+│   ├── example-v2-linux/       # v2 protocol — Linux (libusb)
+│   ├── example-v2-windows/     # v2 protocol — Windows (MFC)
+│   ├── example-v3-linux/       # v3 protocol — Linux (libusb)
+│   └── example-v3-windows/     # v3 protocol — Windows (MFC)
+├── pyproject.toml              # Package metadata & build config
+├── requirements.txt            # Dependencies
+├── install.sh                  # Linux/macOS setup script
+├── install.bat                 # Windows setup script
+└── README.md                   # This file
 ```
 
 ## Supported Cameras
@@ -300,7 +313,7 @@ camera = SonyCamera(version=SDI_VERSION_V2)
 
 ## Relationship to C/C++ SDK
 
-This Python library is a clean-room reimplementation of the protocol used in Sony's Camera Remote Command SDK examples:
+This Python library is a clean-room reimplementation of the protocol used in Sony's Camera Remote Command SDK examples (located in `CameraRemoteCommadExamples/`):
 - `example-v2-linux/` and `example-v3-linux/` — C++ with libusb
 - `example-v2-windows/` and `example-v3-windows/` — C++ MFC application
 
