@@ -4,6 +4,8 @@
 
 # Ignore Python bytecode and cache directories
 __pycache__/
+.pytest_cache/
+
 *.pyc
 # Ignore virtual environment directories
 venv/
@@ -15,3 +17,6 @@ Camera Control PTP 2 Reference.pdf
 Camera Control PTP 3 Reference.pdf
 Camera Control PTP Example Instruction Manual.pdf
 README.pdf
+CameraRemoteCommadExamples/
+CameraRemoteCommandExamples/CameraRemoteCommandExamples.sln
+CameraRemoteCommandExamples/CameraRemoteCommandExamples/CameraRemoteCommandExamples.csproj
