@@ -7,7 +7,7 @@ authentication, property reading/writing, photo capture, and LiveView streaming.
 
 Basic usage::
 
-    from sony_camera_control import SonyCamera
+    from pysonycam import SonyCamera
 
     with SonyCamera() as camera:
         camera.authenticate()
@@ -15,8 +15,8 @@ Basic usage::
         camera.capture("photo.jpg")
 """
 
-from sony_camera_control.camera import SonyCamera
-from sony_camera_control.constants import (
+from pysonycam.camera import SonyCamera
+from pysonycam.constants import (
     DeviceProperty,
     DriveMode,
     ExposureMode,
@@ -25,8 +25,8 @@ from sony_camera_control.constants import (
     FocusMode,
     FocusArea,
 )
-from sony_camera_control.format import property_name, format_value
-from sony_camera_control.exceptions import (
+from pysonycam.format import property_name, format_value
+from pysonycam.exceptions import (
     SonyCameraError,
     ConnectionError,
     AuthenticationError,

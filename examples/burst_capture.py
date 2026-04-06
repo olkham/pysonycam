@@ -20,7 +20,7 @@ import sys
 import logging
 from pathlib import Path
 
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 logging.basicConfig(
     level=logging.INFO,

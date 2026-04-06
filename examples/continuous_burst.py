@@ -23,7 +23,7 @@ import time
 import logging
 from pathlib import Path
 
-from sony_camera_control import SonyCamera, DriveMode
+from pysonycam import SonyCamera, DriveMode
 
 logging.basicConfig(
     level=logging.INFO,

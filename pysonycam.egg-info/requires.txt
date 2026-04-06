@@ -9,3 +9,7 @@ mypy
 [docs]
 sphinx
 sphinx-rtd-theme
+
+[gui]
+opencv-python>=4.5
+numpy>=1.21

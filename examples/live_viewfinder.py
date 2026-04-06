@@ -32,8 +32,8 @@ except ImportError:
     )
     raise SystemExit(1)
 
-from sony_camera_control import SonyCamera, DriveMode
-from sony_camera_control.constants import (
+from pysonycam import SonyCamera, DriveMode
+from pysonycam.constants import (
     DeviceProperty,
     SaveMedia,
     SHOT_OBJECT_HANDLE,

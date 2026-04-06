@@ -12,7 +12,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from sony_camera_control.constants import DataType, DATA_TYPE_SIZE, scalar_type_for_array
+from pysonycam.constants import DataType, DATA_TYPE_SIZE, scalar_type_for_array
 
 
 @dataclass

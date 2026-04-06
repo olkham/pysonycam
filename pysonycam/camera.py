@@ -11,7 +11,7 @@ Provides a Pythonic interface for:
 
 Usage::
 
-    from sony_camera_control import SonyCamera
+    from pysonycam import SonyCamera
 
     with SonyCamera() as camera:
         camera.authenticate()
@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import Iterator, Optional, Union
 
-from sony_camera_control.constants import (
+from pysonycam.constants import (
     DeviceProperty,
     DriveMode,
     ExposureMode,
@@ -60,18 +60,18 @@ from sony_camera_control.constants import (
     F_NUMBER_TABLE,
     ISO_TABLE,
 )
-from sony_camera_control.exceptions import (
+from pysonycam.exceptions import (
     AuthenticationError,
     PropertyError,
     SonyCameraError,
     TransactionError,
 )
-from sony_camera_control.parser import (
+from pysonycam.parser import (
     DevicePropInfo,
     parse_all_device_props,
     parse_liveview_image,
 )
-from sony_camera_control.ptp import PTPTransport, PTPResponse
+from pysonycam.ptp import PTPTransport, PTPResponse
 
 logger = logging.getLogger(__name__)
 

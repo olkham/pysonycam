@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 
 import usb1  # python-libusb1
 
-from sony_camera_control.constants import ContainerType, ResponseCode
-from sony_camera_control.exceptions import (
+from pysonycam.constants import ContainerType, ResponseCode
+from pysonycam.exceptions import (
     ConnectionError,
     DeviceNotFoundError,
     TimeoutError,

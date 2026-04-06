@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sony-camera-control"
+name = "pysonycam"
 version = "1.0.0"
 description = "Python library for controlling Sony cameras via PTP/USB (Sony SDIO extensions)"
 readme = "README.md"
@@ -47,11 +47,16 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/sony-camera-control"
-Documentation = "https://github.com/example/sony-camera-control#readme"
+Homepage = "https://github.com/example/pysonycam"
+Documentation = "https://github.com/example/pysonycam#readme"
 
 [tool.setuptools.packages.find]
-include = ["sony_camera_control*"]
+include = ["pysonycam*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "hardware: mark test as requiring real Sony camera hardware (use --run-hardware to run)",
+]
 
 [tool.ruff]
 target-version = "py310"

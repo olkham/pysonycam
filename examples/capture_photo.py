@@ -13,8 +13,8 @@ import sys
 import logging
 from pathlib import Path
 
-from sony_camera_control import SonyCamera, ExposureMode
-from sony_camera_control.constants import SaveMedia
+from pysonycam import SonyCamera, ExposureMode
+from pysonycam.constants import SaveMedia
 
 logging.basicConfig(level=logging.INFO)
 

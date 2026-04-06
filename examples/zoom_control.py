@@ -5,8 +5,8 @@ Zoom control example: demonstrate optical/digital zoom in and out.
 import time
 import logging
 
-from sony_camera_control import SonyCamera
-from sony_camera_control.constants import DeviceProperty, ZoomSetting
+from pysonycam import SonyCamera
+from pysonycam.constants import DeviceProperty, ZoomSetting
 
 logging.basicConfig(level=logging.INFO)
 

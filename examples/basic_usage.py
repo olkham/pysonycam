@@ -9,8 +9,8 @@ Prerequisites:
 """
 
 import logging
-from sony_camera_control import SonyCamera, property_name, format_value
-from sony_camera_control.constants import DataType
+from pysonycam import SonyCamera, property_name, format_value
+from pysonycam.constants import DataType
 
 logging.basicConfig(level=logging.WARNING)  # set to INFO/DEBUG for protocol details
 

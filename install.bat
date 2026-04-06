@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  install.bat - Setup script for sony-camera-control (Windows)
+REM  install.bat - Setup script for pysonycam (Windows)
 REM ============================================================
 echo.
 echo  Sony Camera Control - Python Setup
@@ -34,7 +34,7 @@ REM Upgrade pip
 python.exe -m pip install --upgrade pip
 
 REM Install the package in editable mode
-echo Installing sony-camera-control...
+echo Installing pysonycam...
 pip install -e .
 
 REM WinUSB driver instructions

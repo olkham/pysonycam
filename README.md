@@ -79,7 +79,7 @@ Use **Zadig v2.7** — newer versions may fail to install the driver. Download v
 ## Quick Start
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 # Connect and authenticate
 with SonyCamera() as camera:
@@ -96,7 +96,7 @@ with SonyCamera() as camera:
 ### Capture a Photo
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -107,7 +107,7 @@ with SonyCamera() as camera:
 ### Change Camera Settings
 
 ```python
-from sony_camera_control import SonyCamera, ExposureMode, WhiteBalance
+from pysonycam import SonyCamera, ExposureMode, WhiteBalance
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -129,7 +129,7 @@ with SonyCamera() as camera:
 ### LiveView Streaming
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -145,7 +145,7 @@ with SonyCamera() as camera:
 
 ```python
 import time
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -160,7 +160,7 @@ with SonyCamera() as camera:
 
 ```python
 import time
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -174,8 +174,8 @@ with SonyCamera() as camera:
 ### Read a Specific Property
 
 ```python
-from sony_camera_control import SonyCamera
-from sony_camera_control.constants import DeviceProperty, ISO_TABLE
+from pysonycam import SonyCamera
+from pysonycam.constants import DeviceProperty, ISO_TABLE
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -234,7 +234,7 @@ Returned by `get_property()` and `get_all_properties()`:
 
 ### Constants & Enums
 
-All constants are importable from `sony_camera_control.constants`:
+All constants are importable from `pysonycam.constants`:
 
 - `DeviceProperty` — all property codes (EXPOSURE_MODE, ISO, F_NUMBER, etc.)
 - `ExposureMode` — Manual, Program Auto, Aperture Priority, Shutter Priority, Auto, etc.
@@ -267,7 +267,7 @@ Log levels:
 ## Project Structure
 
 ```
-├── sony_camera_control/        # Python package
+├── pysonycam/        # Python package
 │   ├── __init__.py             # Package exports
 │   ├── camera.py               # High-level SonyCamera API
 │   ├── ptp.py                  # PTP/USB transport layer
@@ -307,7 +307,7 @@ Tested protocol versions:
 
 To use v2, pass `version=0x00C8` when creating the camera:
 ```python
-from sony_camera_control.constants import SDI_VERSION_V2
+from pysonycam.constants import SDI_VERSION_V2
 camera = SonyCamera(version=SDI_VERSION_V2)
 ```
 

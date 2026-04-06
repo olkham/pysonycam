@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  install.sh - Setup script for sony-camera-control (Linux/macOS)
+#  install.sh - Setup script for pysonycam (Linux/macOS)
 # ============================================================
 set -e
 
@@ -46,7 +46,7 @@ source .venv/bin/activate
 pip install --upgrade pip
 
 # Install in editable mode
-echo "Installing sony-camera-control..."
+echo "Installing pysonycam..."
 pip install -e .
 
 echo ""

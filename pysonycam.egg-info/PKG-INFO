@@ -1,11 +1,11 @@
 Metadata-Version: 2.4
-Name: sony-camera-control
+Name: pysonycam
 Version: 1.0.0
 Summary: Python library for controlling Sony cameras via PTP/USB (Sony SDIO extensions)
 Author: Sony Camera Remote SDK Community
 License: MIT
-Project-URL: Homepage, https://github.com/example/sony-camera-control
-Project-URL: Documentation, https://github.com/example/sony-camera-control#readme
+Project-URL: Homepage, https://github.com/example/pysonycam
+Project-URL: Documentation, https://github.com/example/pysonycam#readme
 Keywords: sony,camera,ptp,usb,remote,control,photography
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
@@ -21,6 +21,9 @@ Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: libusb1>=3.0.0
+Provides-Extra: gui
+Requires-Dist: opencv-python>=4.5; extra == "gui"
+Requires-Dist: numpy>=1.21; extra == "gui"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov; extra == "dev"
@@ -96,16 +99,22 @@ brew install libusb
 ```
 
 #### Windows
-Install a WinUSB driver for your camera using [Zadig](https://zadig.akeo.ie/):
-1. Connect your Sony camera
-2. Run Zadig
-3. Select your camera device
-4. Install the WinUSB driver
+You must replace the camera's driver with WinUSB using [Zadig](https://zadig.akeo.ie/).  
+Use **Zadig v2.7** — newer versions may fail to install the driver. Download v2.7 from [here](https://github.com/pbatard/libwdi/releases/tag/v1.4.1).
+
+1. Connect your Sony camera and set it to **PC Remote** mode
+2. **Right-click** `zadig.exe` → **Run as administrator**
+3. In Zadig, go to **Options → List All Devices**
+4. Select your Sony camera from the dropdown (vendor ID `054C`)
+5. Set the target driver to **WinUSB** and click **Replace Driver**
+
+> **Note:** This replaces the MTP driver. To restore it later:  
+> Device Manager → right-click your camera → Update Driver → Search Automatically
 
 ## Quick Start
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 # Connect and authenticate
 with SonyCamera() as camera:
@@ -122,7 +131,7 @@ with SonyCamera() as camera:
 ### Capture a Photo
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -133,7 +142,7 @@ with SonyCamera() as camera:
 ### Change Camera Settings
 
 ```python
-from sony_camera_control import SonyCamera, ExposureMode, WhiteBalance
+from pysonycam import SonyCamera, ExposureMode, WhiteBalance
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -155,7 +164,7 @@ with SonyCamera() as camera:
 ### LiveView Streaming
 
 ```python
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -171,7 +180,7 @@ with SonyCamera() as camera:
 
 ```python
 import time
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -186,7 +195,7 @@ with SonyCamera() as camera:
 
 ```python
 import time
-from sony_camera_control import SonyCamera
+from pysonycam import SonyCamera
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -200,8 +209,8 @@ with SonyCamera() as camera:
 ### Read a Specific Property
 
 ```python
-from sony_camera_control import SonyCamera
-from sony_camera_control.constants import DeviceProperty, ISO_TABLE
+from pysonycam import SonyCamera
+from pysonycam.constants import DeviceProperty, ISO_TABLE
 
 with SonyCamera() as camera:
     camera.authenticate()
@@ -260,7 +269,7 @@ Returned by `get_property()` and `get_all_properties()`:
 
 ### Constants & Enums
 
-All constants are importable from `sony_camera_control.constants`:
+All constants are importable from `pysonycam.constants`:
 
 - `DeviceProperty` — all property codes (EXPOSURE_MODE, ISO, F_NUMBER, etc.)
 - `ExposureMode` — Manual, Program Auto, Aperture Priority, Shutter Priority, Auto, etc.
@@ -293,7 +302,7 @@ Log levels:
 ## Project Structure
 
 ```
-├── sony_camera_control/        # Python package
+├── pysonycam/        # Python package
 │   ├── __init__.py             # Package exports
 │   ├── camera.py               # High-level SonyCamera API
 │   ├── ptp.py                  # PTP/USB transport layer
@@ -333,7 +342,7 @@ Tested protocol versions:
 
 To use v2, pass `version=0x00C8` when creating the camera:
 ```python
-from sony_camera_control.constants import SDI_VERSION_V2
+from pysonycam.constants import SDI_VERSION_V2
 camera = SonyCamera(version=SDI_VERSION_V2)
 ```
 

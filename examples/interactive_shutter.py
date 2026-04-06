@@ -20,8 +20,8 @@ import logging
 import msvcrt
 from pathlib import Path
 
-from sony_camera_control import SonyCamera
-from sony_camera_control.constants import (
+from pysonycam import SonyCamera
+from pysonycam.constants import (
     DeviceProperty,
     SaveMedia,
     SHOT_OBJECT_HANDLE,

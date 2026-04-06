@@ -7,8 +7,8 @@ shutter speed, white balance, and other properties.
 
 import logging
 
-from sony_camera_control import SonyCamera, ExposureMode, WhiteBalance, FocusArea
-from sony_camera_control.constants import (
+from pysonycam import SonyCamera, ExposureMode, WhiteBalance, FocusArea
+from pysonycam.constants import (
     DeviceProperty,
     SHUTTER_SPEED_TABLE,
     F_NUMBER_TABLE,

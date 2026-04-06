@@ -9,7 +9,7 @@ Provides two public helpers:
 
 from __future__ import annotations
 
-from sony_camera_control.constants import (
+from pysonycam.constants import (
     DeviceProperty,
     ExposureMode,
     OperatingMode,
