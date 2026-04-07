@@ -207,13 +207,13 @@ with SonyCamera() as camera:
 | `set_white_balance(wb)` | Set white balance mode |
 | `set_exposure_compensation(value)` | Set EV compensation |
 | `set_save_media(media)` | Set save destination (host/camera/both) |
-| `capture(path)` | Capture a photo and save to file → `bytes` |
+| `capture(path=None)` | Capture a photo, optionally save to file → `bytes` |
 | `get_liveview_frame()` | Get one LiveView JPEG frame → `bytes` |
 | `liveview_stream(count)` | Yield LiveView frames as a generator |
 | `zoom_in(speed)` / `zoom_out(speed)` / `zoom_stop()` | Zoom control |
 | `focus_near(step)` / `focus_far(step)` | Manual focus control |
 | `start_movie()` / `stop_movie()` | Movie recording control |
-| `battery_level` | Read battery level (property) |
+| `battery_level` *(property)* | Read battery level → `DevicePropInfo` or `None` |
 
 ### `DevicePropInfo`
 
@@ -285,7 +285,11 @@ Log levels:
 │   ├── live_viewfinder.py      # OpenCV LiveView + capture controls
 │   ├── liveview_stream.py      # Stream LiveView frames to disk
 │   ├── change_settings.py      # Modify camera settings
-│   └── zoom_control.py         # Zoom in/out
+│   ├── zoom_control.py         # Zoom in/out
+│   ├── astrophotography.py     # Long-exposure, bulb mode, and astrophotography viewfinder
+│   ├── timelapse.py            # Timelapse capture with optional live preview and video assembly
+│   ├── hfr_slow_motion.py      # HFR slow-motion recording control
+│   └── download_videos.py      # List and download MP4 videos from camera SD card
 ├── CameraRemoteCommadExamples/ # Sony C/C++ SDK reference examples
 │   ├── example-v2-linux/       # v2 protocol — Linux (libusb)
 │   ├── example-v2-windows/     # v2 protocol — Windows (MFC)
@@ -301,9 +305,13 @@ Log levels:
 ## Supported Cameras
 
 This library should work with Sony cameras that support the Camera Remote Command SDK via PTP/USB.
-Tested protocol versions:
-- **v2** (SDK version 0x00C8 / 200)
-- **v3** (SDK version 0x012C / 300)
+
+> **Tested configuration:** Windows 11 with a Sony RX100 VII (DSC-RX100M7), using the v3 protocol.  
+> Behaviour on other cameras, operating systems, or protocol versions is untested — feedback welcome.
+
+Supported protocol versions:
+- **v2** (SDK version 0x00C8 / 200) — parser support only, not tested on real hardware
+- **v3** (SDK version 0x012C / 300) — tested on RX100 VII / Windows 11
 
 To use v2, pass `version=0x00C8` when creating the camera:
 ```python
