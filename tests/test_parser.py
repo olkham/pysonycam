@@ -10,6 +10,7 @@ from pysonycam.parser import (
     _read_array,
     parse_device_prop_info,
     parse_all_device_props,
+    parse_content_info_list,
     parse_liveview_image,
 )
 from pysonycam.constants import DataType
@@ -407,3 +408,66 @@ class TestParseLiveviewImage:
         data = header + padding + jpeg
         result = parse_liveview_image(data)
         assert result == jpeg
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Phase 4 — parse_content_info_list
+# ══════════════════════════════════════════════════════════════════════════
+
+def _pack_ptp_str(s: str) -> bytes:
+    encoded = s.encode("utf-16-le") + b"\x00\x00"
+    return bytes([len(s) + 1]) + encoded
+
+
+def _build_content_payload(items: list[dict]) -> bytes:
+    buf = struct.pack("<I", len(items))
+    for item in items:
+        buf += struct.pack("<I", item["content_id"])
+        buf += struct.pack("<H", item.get("format_code", 0x3801))
+        buf += struct.pack("<I", 0)  # padding
+        buf += struct.pack("<Q", item.get("size", 100))
+        buf += _pack_ptp_str(item.get("file_name", "IMG.JPG"))
+        buf += _pack_ptp_str(item.get("date_time", "20241201T090000"))
+    return buf
+
+
+class TestParseContentInfoList:
+    def test_empty(self):
+        data = struct.pack("<I", 0)
+        result = parse_content_info_list(data)
+        assert result == []
+
+    def test_too_short(self):
+        assert parse_content_info_list(b"") == []
+        assert parse_content_info_list(b"\x01") == []
+
+    def test_single_item(self):
+        data = _build_content_payload([
+            {"content_id": 7, "file_name": "DSC01234.JPG", "size": 5242880, "format_code": 0x3801},
+        ])
+        result = parse_content_info_list(data)
+        assert len(result) == 1
+        item = result[0]
+        assert item["content_id"] == 7
+        assert item["file_name"] == "DSC01234.JPG"
+        assert item["size"] == 5242880
+        assert item["format_code"] == 0x3801
+
+    def test_multiple_items(self):
+        data = _build_content_payload([
+            {"content_id": 1, "file_name": "IMG_0001.JPG"},
+            {"content_id": 2, "file_name": "VID_0001.MP4", "format_code": 0x300D},
+            {"content_id": 3, "file_name": "IMG_0002.JPG"},
+        ])
+        result = parse_content_info_list(data)
+        assert len(result) == 3
+        assert result[0]["content_id"] == 1
+        assert result[1]["file_name"] == "VID_0001.MP4"
+        assert result[2]["content_id"] == 3
+
+    def test_datetime_field(self):
+        data = _build_content_payload([
+            {"content_id": 10, "date_time": "20241231T235959", "file_name": "A.JPG"},
+        ])
+        result = parse_content_info_list(data)
+        assert result[0]["date_time"] == "20241231T235959"

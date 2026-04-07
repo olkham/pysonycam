@@ -9,6 +9,8 @@ Provides two public helpers:
 
 from __future__ import annotations
 
+import struct
+
 from pysonycam.constants import (
     DeviceProperty,
     ExposureMode,
@@ -213,6 +215,7 @@ _PICTURE_PROFILE_NAMES: dict[int, str] = {
     0x00: "Off", **{i: f"PP{i}" for i in range(1, 11)},
 }
 _ON_OFF = {0x00: "Off", 0x01: "On"}
+_ON_OFF_PRESS = {0x0001: "Off/Release", 0x0002: "On/Press"}
 _NEAR_FAR_NAMES: dict[int, str] = {
     0x0101: "Near Small", 0x0103: "Near Medium", 0x0107: "Near Large",
     0x0201: "Far Small", 0x0203: "Far Medium", 0x0207: "Far Large",
@@ -223,6 +226,21 @@ _MOVIE_REC_NAMES: dict[int, str] = {
 _BUTTON_NAMES: dict[int, str] = {0x0001: "Release", 0x0002: "Press"}
 _AE_LOCK_NAMES: dict[int, str] = {0x0001: "Unlocked", 0x0002: "Locked"}
 _VIEW_NAMES: dict[int, str] = {0x01: "On", 0x02: "Off"}
+
+
+def _fmt_focus_xy(v: int) -> str:
+    """Format FOCUS_AREA_XY: unpack two INT16 from a UINT32."""
+    data = struct.pack("<I", v & 0xFFFFFFFF)
+    x = struct.unpack_from("<h", data, 0)[0]
+    y = struct.unpack_from("<h", data, 2)[0]
+    return f"({x}, {y})"
+
+
+def _fmt_signed_speed(v: int) -> str:
+    """Format a signed INT16 speed value (ZOOM_RANGE / FOCUS_RANGE)."""
+    data = struct.pack("<H", v & 0xFFFF)
+    sv = struct.unpack_from("<h", data, 0)[0]
+    return f"{sv:+d}"
 
 # ---------------------------------------------------------------------------
 # Master dispatch table:  property_code -> callable(value) -> str
@@ -257,7 +275,7 @@ _VALUE_FORMATTERS: dict[int, object] = {
     DeviceProperty.PICTURE_EFFECTS:      _PICTURE_EFFECTS_NAMES,
     DeviceProperty.CREATIVE_STYLE:       _CREATIVE_STYLE_NAMES,
     DeviceProperty.MOVIE_FORMAT:         _MOVIE_FORMAT_NAMES,
-    0xD23F:                              _PICTURE_PROFILE_NAMES,   # PICTURE_PROFILE
+    DeviceProperty.PICTURE_PROFILE:      _PICTURE_PROFILE_NAMES,
     DeviceProperty.NEAR_FAR:             _NEAR_FAR_NAMES,
     DeviceProperty.MOVIE_REC:            _MOVIE_REC_NAMES,
     DeviceProperty.S1_BUTTON:            _BUTTON_NAMES,
@@ -269,6 +287,12 @@ _VALUE_FORMATTERS: dict[int, object] = {
     DeviceProperty.FOCUS_MAGNIFY:        _ON_OFF,
     DeviceProperty.AF_LOCK:              _AF_STATUS_NAMES,
     DeviceProperty.AWB_LOCK:             _ON_OFF,
+    DeviceProperty.FOCUS_AREA_XY:        _fmt_focus_xy,
+    DeviceProperty.CUSTOM_WB_STANDBY:    _ON_OFF_PRESS,
+    DeviceProperty.CUSTOM_WB_STANDBY_CANCEL: _ON_OFF_PRESS,
+    DeviceProperty.CUSTOM_WB_EXECUTE:    _ON_OFF_PRESS,
+    DeviceProperty.ZOOM_RANGE:           _fmt_signed_speed,
+    DeviceProperty.FOCUS_RANGE:          _fmt_signed_speed,
 }
 
 

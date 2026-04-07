@@ -228,6 +228,69 @@ def parse_all_device_props(data: bytes) -> dict[int, DevicePropInfo]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Content Info List parser  (SDIO_GetContentInfoList — 0x923C)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ContentInfo:
+    """Metadata for a single file on the camera's memory card."""
+    content_id: int = 0
+    format_code: int = 0
+    size: int = 0
+    file_name: str = ""
+    date_time: str = ""
+
+
+def parse_content_info_list(data: bytes) -> list[dict]:
+    """Parse the response payload from SDIO_GetContentInfoList.
+
+    Sony wire format (inferred from MTP/SDIO patterns):
+      uint32  count
+      count × record:
+        uint32  content_id
+        uint16  format_code
+        uint32  padding / object_format_variant
+        uint64  object_compressed_size
+        PTPstr  file_name        (uint8 char_count, UTF-16LE pairs)
+        PTPstr  capture_date     (uint8 char_count, UTF-16LE pairs)
+
+    Returns
+    -------
+    list of dict
+        Each dict has keys ``content_id``, ``file_name``, ``date_time``,
+        ``size``, ``format_code``.
+    """
+    if len(data) < 4:
+        return []
+
+    count = struct.unpack_from("<I", data, 0)[0]
+    offset = 4
+    result: list[dict] = []
+
+    for _ in range(count):
+        if offset + 18 > len(data):
+            break
+        try:
+            content_id = struct.unpack_from("<I", data, offset)[0]; offset += 4
+            format_code = struct.unpack_from("<H", data, offset)[0]; offset += 2
+            offset += 4   # skip padding / object_format_variant
+            size = struct.unpack_from("<Q", data, offset)[0]; offset += 8
+            file_name, consumed = _read_ptp_string(data, offset); offset += consumed
+            date_time, consumed = _read_ptp_string(data, offset); offset += consumed
+            result.append({
+                "content_id": content_id,
+                "file_name": file_name,
+                "date_time": date_time,
+                "size": size,
+                "format_code": format_code,
+            })
+        except (struct.error, IndexError):
+            break
+
+    return result
+
+
 def parse_liveview_image(data: bytes) -> bytes:
     """Extract the JPEG payload from a LiveView object.
 

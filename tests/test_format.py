@@ -139,3 +139,58 @@ class TestFormatValueEdgeCases:
     def test_list_value(self):
         result = format_value(DeviceProperty.F_NUMBER, [1, 2, 3])
         assert "[1, 2, 3]" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Phase 8 — New formatters
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestPictureProfileFormatter:
+    def test_uses_enum_key_not_raw_hex(self):
+        """PICTURE_PROFILE must be looked up via DeviceProperty enum, not raw hex."""
+        assert DeviceProperty.PICTURE_PROFILE == 0xD23F
+        result = format_value(DeviceProperty.PICTURE_PROFILE, 0x01)
+        assert result == "PP1"
+
+    def test_off(self):
+        assert format_value(DeviceProperty.PICTURE_PROFILE, 0x00) == "Off"
+
+    def test_pp10(self):
+        assert format_value(DeviceProperty.PICTURE_PROFILE, 10) == "PP10"
+
+
+class TestFocusAreaXYFormatter:
+    def test_positive_coords(self):
+        import struct
+        # Pack x=100 (0x0064), y=150 (0x0096) as UINT32
+        value = struct.unpack("<I", struct.pack("<hh", 100, 150))[0]
+        result = format_value(DeviceProperty.FOCUS_AREA_XY, value)
+        assert result == "(100, 150)"
+
+    def test_negative_coords(self):
+        import struct
+        value = struct.unpack("<I", struct.pack("<hh", -50, -80))[0]
+        result = format_value(DeviceProperty.FOCUS_AREA_XY, value)
+        assert result == "(-50, -80)"
+
+    def test_zero(self):
+        result = format_value(DeviceProperty.FOCUS_AREA_XY, 0)
+        assert result == "(0, 0)"
+
+
+class TestSignedSpeedFormatter:
+    def test_zoom_range_positive(self):
+        import struct
+        value = struct.unpack("<H", struct.pack("<h", 10000))[0]
+        result = format_value(DeviceProperty.ZOOM_RANGE, value)
+        assert result == "+10000"
+
+    def test_zoom_range_negative(self):
+        import struct
+        value = struct.unpack("<H", struct.pack("<h", -5000))[0]
+        result = format_value(DeviceProperty.ZOOM_RANGE, value)
+        assert result == "-5000"
+
+    def test_focus_range_zero(self):
+        result = format_value(DeviceProperty.FOCUS_RANGE, 0)
+        assert result == "+0"

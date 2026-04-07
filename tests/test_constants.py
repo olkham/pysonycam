@@ -126,9 +126,13 @@ class TestResponseCode:
 
 class TestOpCodes:
     def test_ptp_range(self):
-        """Standard PTP opcodes are in the 0x1000 range."""
+        """Standard PTP opcodes are in the 0x1000 range; MTP extensions allowed in 0x9xxx."""
+        _mtp_extensions = {PTPOpCode.GET_OBJECT_PROP_VALUE, PTPOpCode.GET_OBJECT_PROP_LIST}
         for op in PTPOpCode:
-            assert 0x1000 <= op <= 0x1FFF
+            if op in _mtp_extensions:
+                assert 0x9000 <= op <= 0x9FFF
+            else:
+                assert 0x1000 <= op <= 0x1FFF
 
     def test_sdio_range(self):
         """Sony SDIO opcodes are in the 0x9000 range."""
@@ -139,6 +143,100 @@ class TestOpCodes:
         assert SDIOOpCode.CONNECT == 0x9201
         assert SDIOOpCode.GET_ALL_EXT_DEVICE_INFO == 0x9209
         assert SDIOOpCode.CONTROL_DEVICE == 0x9207
+
+    def test_new_ptp_opcodes(self):
+        assert PTPOpCode.GET_THUMB == 0x100A
+        assert PTPOpCode.SEND_OBJECT == 0x100D
+        assert PTPOpCode.GET_PARTIAL_OBJECT == 0x101B
+        assert PTPOpCode.GET_OBJECT_PROP_VALUE == 0x9803
+        assert PTPOpCode.GET_OBJECT_PROP_LIST == 0x9805
+
+    def test_new_sdio_opcodes(self):
+        assert SDIOOpCode.GET_EXT_DEVICE_PROP == 0x9251
+        assert SDIOOpCode.GET_CONTENT_INFO_LIST == 0x923C
+        assert SDIOOpCode.GET_CONTENT_DATA == 0x923D
+        assert SDIOOpCode.DELETE_CONTENT == 0x9250
+        assert SDIOOpCode.GET_CONTENT_COMPRESSED_DATA == 0x923E
+        assert SDIOOpCode.GET_VENDOR_CODE_VERSION == 0x9216
+        assert SDIOOpCode.UPLOAD_DATA == 0x921A
+        assert SDIOOpCode.CONTROL_UPLOAD_DATA == 0x921B
+        assert SDIOOpCode.DOWNLOAD_DATA == 0x921D
+        assert SDIOOpCode.GET_LENS_INFORMATION == 0x9223
+        assert SDIOOpCode.OPERATION_RESULTS_SUPPORTED == 0x922F
+
+    def test_expanded_event_codes(self):
+        assert SDIOEventCode.OBJECT_ADDED == 0xC201
+        assert SDIOEventCode.OBJECT_REMOVED == 0xC202
+        assert SDIOEventCode.PROPERTY_CHANGED == 0xC203
+        assert SDIOEventCode.STORE_ADDED == 0x4004
+        assert SDIOEventCode.STORE_REMOVED == 0x4005
+        assert SDIOEventCode.CAPTURED_EVENT == 0xC206
+        assert SDIOEventCode.CWB_CAPTURED_RESULT == 0xC208
+        assert SDIOEventCode.MEDIA_FORMAT_RESULT == 0xC20B
+        assert SDIOEventCode.MOVIE_REC_OPERATION_RESULTS == 0xC20D
+        assert SDIOEventCode.FOCUS_POSITION_RESULT == 0xC20E
+        assert SDIOEventCode.ZOOM_AND_FOCUS_POSITION_EVENT == 0xC20F
+        assert SDIOEventCode.OPERATION_RESULTS == 0xC210
+        assert SDIOEventCode.OPERATION_RESULTS_2 == 0xC211
+        assert SDIOEventCode.CAMERA_SETTING_FILE_READ_RESULT == 0xC214
+        assert SDIOEventCode.ZOOM_POSITION_RESULT == 0xC217
+        assert SDIOEventCode.FOCUS_POSITION_RESULT_2 == 0xC218
+        assert SDIOEventCode.MEDIA_PROFILE_CHANGED == 0xC21A
+        assert SDIOEventCode.MEDIA_PROFILE_CHANGED_2 == 0xC21B
+        assert SDIOEventCode.AF_STATUS == 0xC21D
+        assert SDIOEventCode.AF_STATUS_2 == 0xC21E
+        assert SDIOEventCode.RECORDING_TIME_RESULT == 0xC21F
+        assert SDIOEventCode.CONTROL_JOB_LIST_EVENT == 0xC222
+
+    def test_new_device_properties(self):
+        # Exposure
+        assert DeviceProperty.SHUTTER_SPEED_VALUE == 0xD016
+        assert DeviceProperty.ISO_CURRENT == 0xD023
+        assert DeviceProperty.EXPOSURE_STEP == 0xD237
+        # WB
+        assert DeviceProperty.WB_MODE_SETTING == 0xD00C
+        assert DeviceProperty.WB_PRESET_COLOR_TEMP == 0xD086
+        assert DeviceProperty.WB_R_GAIN == 0xD087
+        assert DeviceProperty.WB_B_GAIN == 0xD088
+        # Focus
+        assert DeviceProperty.FOCUS_MODE_SETTING == 0xD007
+        assert DeviceProperty.AF_TRANSITION_SPEED == 0xD061
+        assert DeviceProperty.FOCAL_POSITION_CURRENT == 0xD24C
+        # S&Q
+        assert DeviceProperty.SQ_MODE_SETTING == 0xD051
+        assert DeviceProperty.SQ_FRAME_RATE == 0xD052
+        # Media
+        assert DeviceProperty.MEDIA_SLOT1_STATUS == 0xD248
+        assert DeviceProperty.MEDIA_SLOT2_STATUS == 0xD256
+        # Creative
+        assert DeviceProperty.PICTURE_PROFILE == 0xD23F
+        assert DeviceProperty.CREATIVE_LOOK == 0xD0FA
+        # Battery
+        assert DeviceProperty.BATTERY_REMAINING_MINUTES == 0xD038
+        assert DeviceProperty.POWER_SOURCE == 0xD03A
+        # System
+        assert DeviceProperty.LENS_MODEL_NAME == 0xD07B
+        assert DeviceProperty.SOFTWARE_VERSION == 0xD040
+        # Controls
+        assert DeviceProperty.CUSTOM_WB_STANDBY == 0xD2DF
+        assert DeviceProperty.MOVIE_REC_TOGGLE == 0xD2EC
+        assert DeviceProperty.ZOOM_RANGE == 0xF003
+        assert DeviceProperty.FOCUS_RANGE == 0xF004
+
+    def test_no_duplicate_values_in_device_property(self):
+        """Each non-alias DeviceProperty value should be unique (except known aliases)."""
+        # STILL_CAPTURE_MODE = 0x5013 is intentionally the same as OPERATING_MODE
+        seen: dict[int, str] = {}
+        for prop in DeviceProperty:
+            val = int(prop)
+            if val in seen:
+                # Only the known alias is permitted
+                assert val == 0x5013, (
+                    f"Unexpected duplicate DeviceProperty value 0x{val:04X}: "
+                    f"{seen[val]} and {prop.name}"
+                )
+            else:
+                seen[val] = prop.name
 
 
 # ══════════════════════════════════════════════════════════════════════════

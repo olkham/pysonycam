@@ -37,9 +37,10 @@ from __future__ import annotations
 
 import logging
 import struct
+import threading
 import time
 from pathlib import Path
-from typing import Iterator, Optional, Union
+from typing import Callable, Iterator, Optional, Union
 
 from pysonycam.constants import (
     DeviceProperty,
@@ -70,11 +71,72 @@ from pysonycam.exceptions import (
 from pysonycam.parser import (
     DevicePropInfo,
     parse_all_device_props,
+    parse_device_prop_info,
+    parse_content_info_list,
     parse_liveview_image,
 )
-from pysonycam.ptp import PTPTransport, PTPResponse
+from pysonycam.ptp import PTPEvent, PTPTransport, PTPResponse
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Event dispatcher (Phase 7)
+# ---------------------------------------------------------------------------
+
+class _EventDispatcher:
+    """Background thread that polls the interrupt endpoint and dispatches events.
+
+    Not intended for direct use — see :meth:`SonyCamera.on_event`,
+    :meth:`SonyCamera.start_event_listener`, and
+    :meth:`SonyCamera.stop_event_listener`.
+    """
+
+    _POLL_TIMEOUT_MS = 500
+
+    def __init__(self, transport: PTPTransport) -> None:
+        self._transport = transport
+        self._callbacks: dict[int, list[Callable[[PTPEvent], None]]] = {}
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+
+    def register(self, code: int, callback: Callable[[PTPEvent], None]) -> None:
+        self._callbacks.setdefault(code, []).append(callback)
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run, name="PTPEventListener", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+            self._thread = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                event = self._transport.wait_event(timeout_ms=self._POLL_TIMEOUT_MS)
+            except TimeoutError:
+                continue
+            except Exception as exc:
+                logger.debug("Event listener error: %s", exc)
+                continue
+            handlers = self._callbacks.get(event.code, [])
+            for cb in handlers:
+                try:
+                    cb(event)
+                except Exception:
+                    logger.exception("Exception in event callback for 0x%04X", event.code)
 
 
 class SonyCamera:
@@ -109,6 +171,7 @@ class SonyCamera:
         self._version = version
         self._properties: dict[int, DevicePropInfo] = {}
         self._authenticated = False
+        self._event_dispatcher = _EventDispatcher(self._transport)
 
     # ------------------------------------------------------------------
     # Context manager
@@ -147,6 +210,7 @@ class SonyCamera:
 
     def disconnect(self) -> None:
         """Close the PTP session and USB connection."""
+        self._event_dispatcher.stop()
         if self._transport.is_connected:
             try:
                 self._close_session()
@@ -544,6 +608,577 @@ class SonyCamera:
         """Get metadata about an object (before downloading it)."""
         resp, data = self._transport.receive(PTPOpCode.GET_OBJECT_INFO, [handle])
         return data
+
+    # ------------------------------------------------------------------
+    # Phase 2 — PTP operation methods
+    # ------------------------------------------------------------------
+
+    def get_device_info(self) -> bytes:
+        """Return the raw PTP DeviceInfo dataset.
+
+        The response payload contains device capabilities in the standard PTP format.
+        """
+        resp, data = self._transport.receive(PTPOpCode.GET_DEVICE_INFO)
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetDeviceInfo failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    def get_storage_info(self, storage_id: int) -> bytes:
+        """Return raw StorageInfo for the given storage ID.
+
+        Parameters
+        ----------
+        storage_id : int
+            A storage ID obtained from the camera (see :meth:`_get_storage_ids`).
+        """
+        resp, data = self._transport.receive(PTPOpCode.GET_STORAGE_INFO, [storage_id])
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetStorageInfo failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    def get_num_objects(
+        self,
+        storage_id: int = 0xFFFFFFFF,
+        format_code: int = 0x00000000,
+        parent_handle: int = 0xFFFFFFFF,
+    ) -> int:
+        """Return the number of objects matching the given criteria.
+
+        Parameters
+        ----------
+        storage_id : int
+            Storage to query (0xFFFFFFFF = all storages).
+        format_code : int
+            Object format filter (0 = all formats).
+        parent_handle : int
+            Parent container handle (0xFFFFFFFF = all objects).
+        """
+        resp, data = self._transport.receive(
+            PTPOpCode.GET_NUM_OBJECTS,
+            [storage_id, format_code, parent_handle],
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetNumObjects failed: 0x{resp.code:04X}", resp.code
+            )
+        if len(data) < 4:
+            return 0
+        return struct.unpack_from("<I", data, 0)[0]
+
+    def get_thumb(self, handle: int) -> bytes:
+        """Download the thumbnail for the object identified by *handle*.
+
+        Returns
+        -------
+        bytes
+            JPEG-encoded thumbnail data.
+        """
+        resp, data = self._transport.receive(PTPOpCode.GET_THUMB, [handle])
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetThumb failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    def get_partial_object(self, handle: int, offset: int, max_bytes: int) -> bytes:
+        """Download a portion of an object.
+
+        Useful for resumable downloads of large files.
+
+        Parameters
+        ----------
+        handle : int
+            Object handle.
+        offset : int
+            Byte offset from the beginning of the object.
+        max_bytes : int
+            Maximum number of bytes to return.
+        """
+        resp, data = self._transport.receive(
+            PTPOpCode.GET_PARTIAL_OBJECT, [handle, offset, max_bytes]
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetPartialObject failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    # ------------------------------------------------------------------
+    # Phase 3 — SDIO single-property query
+    # ------------------------------------------------------------------
+
+    def get_ext_device_prop(self, prop_code: int) -> DevicePropInfo:
+        """Query a single extended device property.
+
+        Uses SDIO_GetExtDeviceProp (0x9251) which is more efficient than
+        fetching the entire property block when only one value is needed.
+
+        Parameters
+        ----------
+        prop_code : int
+            A :class:`DeviceProperty` code.
+
+        Returns
+        -------
+        DevicePropInfo
+            Parsed property information.
+        """
+        resp, data = self._transport.receive(
+            SDIOOpCode.GET_EXT_DEVICE_PROP, [prop_code]
+        )
+        if resp.code != ResponseCode.OK:
+            raise PropertyError(
+                f"GetExtDeviceProp 0x{prop_code:04X} failed: 0x{resp.code:04X}"
+            )
+        if len(data) < 6:
+            raise PropertyError(f"GetExtDeviceProp response too short for 0x{prop_code:04X}")
+        info, _ = parse_device_prop_info(data, 0)
+        return info
+
+    # ------------------------------------------------------------------
+    # Phase 4 — Content Management (SDIO)
+    # ------------------------------------------------------------------
+
+    def get_content_info_list(
+        self,
+        storage_id: int = 0xFFFFFFFF,
+        start_index: int = 0,
+        max_count: int = 0xFFFFFFFF,
+    ) -> list[dict]:
+        """Browse media on the camera card and return content metadata.
+
+        Parameters
+        ----------
+        storage_id : int
+            Storage target (0xFFFFFFFF = all storages).
+        start_index : int
+            First item index (0-based).
+        max_count : int
+            Maximum number of items to return.
+
+        Returns
+        -------
+        list of dict
+            Each dict has keys: ``content_id``, ``file_name``, ``date_time``,
+            ``size``, ``format_code``.
+        """
+        resp, data = self._transport.receive(
+            SDIOOpCode.GET_CONTENT_INFO_LIST,
+            [storage_id, start_index, max_count],
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetContentInfoList failed: 0x{resp.code:04X}", resp.code
+            )
+        return parse_content_info_list(data)
+
+    def get_content_data(self, content_id: int) -> bytes:
+        """Download a content item by its content ID.
+
+        Parameters
+        ----------
+        content_id : int
+            The content ID obtained from :meth:`get_content_info_list`.
+
+        Returns
+        -------
+        bytes
+            Raw file data (JPEG, video, etc.).
+        """
+        resp, data = self._transport.receive(
+            SDIOOpCode.GET_CONTENT_DATA, [content_id]
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetContentData failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    def delete_content(self, content_id: int) -> None:
+        """Delete a content item on the camera's memory card.
+
+        Parameters
+        ----------
+        content_id : int
+            The content ID obtained from :meth:`get_content_info_list`.
+        """
+        resp = self._transport.send(
+            SDIOOpCode.DELETE_CONTENT, [content_id]
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"DeleteContent failed: 0x{resp.code:04X}", resp.code
+            )
+
+    def get_content_compressed_data(self, content_id: int) -> bytes:
+        """Download a proxy / compressed preview of a content item.
+
+        Parameters
+        ----------
+        content_id : int
+            The content ID obtained from :meth:`get_content_info_list`.
+        """
+        resp, data = self._transport.receive(
+            SDIOOpCode.GET_CONTENT_COMPRESSED_DATA, [content_id]
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetContentCompressedData failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    # ------------------------------------------------------------------
+    # Phase 5 — Control helpers
+    # ------------------------------------------------------------------
+
+    # 5.1 Exposure-lock helpers
+
+    def press_ael(self) -> None:
+        """Press the AE lock button."""
+        self.control_device(DeviceProperty.AE_LOCK, 0x0002)
+
+    def release_ael(self) -> None:
+        """Release the AE lock button."""
+        self.control_device(DeviceProperty.AE_LOCK, 0x0001)
+
+    def press_awbl(self) -> None:
+        """Press the AWB lock button."""
+        self.control_device(DeviceProperty.AWB_LOCK, 0x0002)
+
+    def release_awbl(self) -> None:
+        """Release the AWB lock button."""
+        self.control_device(DeviceProperty.AWB_LOCK, 0x0001)
+
+    # 5.2 Focus magnifier helpers
+
+    def enable_focus_magnifier(self) -> None:
+        """Enable the focus magnifier overlay."""
+        self.control_device(DeviceProperty.FOCUS_MAGNIFIER, 0x0002)
+
+    def disable_focus_magnifier(self) -> None:
+        """Disable the focus magnifier overlay."""
+        self.control_device(DeviceProperty.FOCUS_MAGNIFIER_CANCEL, 0x0002)
+
+    def focus_mag_increase(self) -> None:
+        """Increase focus magnification level."""
+        self.control_device(DeviceProperty.FOCUS_MAG_PLUS, 0x0002)
+
+    def focus_mag_decrease(self) -> None:
+        """Decrease focus magnification level."""
+        self.control_device(DeviceProperty.FOCUS_MAG_MINUS, 0x0002)
+
+    # 5.3 Remote key navigation helpers
+
+    def remote_key_up(self) -> None:
+        """Press and release the UP remote key."""
+        self.control_device(DeviceProperty.REMOTE_KEY_UP, 0x0002)
+        self.control_device(DeviceProperty.REMOTE_KEY_UP, 0x0001)
+
+    def remote_key_down(self) -> None:
+        """Press and release the DOWN remote key."""
+        self.control_device(DeviceProperty.REMOTE_KEY_DOWN, 0x0002)
+        self.control_device(DeviceProperty.REMOTE_KEY_DOWN, 0x0001)
+
+    def remote_key_left(self) -> None:
+        """Press and release the LEFT remote key."""
+        self.control_device(DeviceProperty.REMOTE_KEY_LEFT, 0x0002)
+        self.control_device(DeviceProperty.REMOTE_KEY_LEFT, 0x0001)
+
+    def remote_key_right(self) -> None:
+        """Press and release the RIGHT remote key."""
+        self.control_device(DeviceProperty.REMOTE_KEY_RIGHT, 0x0002)
+        self.control_device(DeviceProperty.REMOTE_KEY_RIGHT, 0x0001)
+
+    # 5.4 Focus-point helper
+
+    def set_focus_point(self, x: int, y: int) -> None:
+        """Move the focus area to (x, y) in the live-view coordinate space.
+
+        Parameters
+        ----------
+        x : int
+            Horizontal position as a signed 16-bit value relative to centre.
+        y : int
+            Vertical position as a signed 16-bit value relative to centre.
+        """
+        # Pack two INT16 values as a 32-bit UINT32: low word = x, high word = y
+        clamped_x = max(-32768, min(32767, x))
+        clamped_y = max(-32768, min(32767, y))
+        packed = struct.pack("<hh", clamped_x, clamped_y)
+        value = struct.unpack("<I", packed)[0]
+        self.control_device(DeviceProperty.FOCUS_AREA_XY, value, size=4)
+
+    # 5.5 Custom WB capture sequence
+
+    def custom_wb_standby(self) -> None:
+        """Enter custom white-balance measurement standby mode."""
+        self.control_device(DeviceProperty.CUSTOM_WB_STANDBY, 0x0002)
+
+    def custom_wb_cancel(self) -> None:
+        """Cancel a pending custom WB measurement."""
+        self.control_device(DeviceProperty.CUSTOM_WB_STANDBY_CANCEL, 0x0002)
+
+    def custom_wb_execute(self) -> None:
+        """Execute the custom WB measurement and apply the result."""
+        self.control_device(DeviceProperty.CUSTOM_WB_EXECUTE, 0x0002)
+
+    # 5.6 Movie rec toggle
+
+    def toggle_movie(self) -> None:
+        """Toggle movie recording on/off with a single command."""
+        self.control_device(DeviceProperty.MOVIE_REC_TOGGLE, 0x0002)
+
+    # 5.7 Zoom/Focus position presets
+
+    def save_zoom_focus_position(self) -> None:
+        """Store the current zoom and focus position to memory."""
+        self.control_device(DeviceProperty.SAVE_ZOOM_FOCUS_POSITION, 0x0002)
+
+    def load_zoom_focus_position(self) -> None:
+        """Recall the previously saved zoom and focus position."""
+        self.control_device(DeviceProperty.LOAD_ZOOM_FOCUS_POSITION, 0x0002)
+
+    # 5.8 Continuous zoom/focus (INT16 speed range)
+
+    def zoom_continuous(self, speed: int) -> None:
+        """Drive zoom at a continuous speed.
+
+        Parameters
+        ----------
+        speed : int
+            Signed speed in the range −32767…+32767.
+            Positive = telephoto; negative = wide; 0 = stop.
+        """
+        data = struct.pack("<h", max(-32767, min(32767, speed)))
+        resp = self._transport.send(
+            SDIOOpCode.CONTROL_DEVICE,
+            [DeviceProperty.ZOOM_RANGE],
+            data,
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"zoom_continuous failed: 0x{resp.code:04X}", resp.code
+            )
+
+    def focus_continuous(self, speed: int) -> None:
+        """Drive focus at a continuous speed.
+
+        Parameters
+        ----------
+        speed : int
+            Signed speed in the range −32767…+32767.
+            Positive = far; negative = near; 0 = stop.
+        """
+        data = struct.pack("<h", max(-32767, min(32767, speed)))
+        resp = self._transport.send(
+            SDIOOpCode.CONTROL_DEVICE,
+            [DeviceProperty.FOCUS_RANGE],
+            data,
+        )
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"focus_continuous failed: 0x{resp.code:04X}", resp.code
+            )
+
+    # ------------------------------------------------------------------
+    # Phase 6 — Extended property setters/getters
+    # ------------------------------------------------------------------
+
+    # 6.1 Focus advanced
+
+    def set_focus_mode_setting(self, value: int) -> None:
+        """Set the focus mode (AF-S, AF-C, MF, DMF, etc.)."""
+        self.set_property(DeviceProperty.FOCUS_MODE_SETTING, value, size=2)
+
+    def set_af_transition_speed(self, value: int) -> None:
+        """Set AF transition speed (0–7, where 7 = fastest)."""
+        self.set_property(DeviceProperty.AF_TRANSITION_SPEED, value, size=1)
+
+    def set_af_subject_shift_sensitivity(self, value: int) -> None:
+        """Set AF subject shift sensitivity (0–5)."""
+        self.set_property(DeviceProperty.AF_SUBJECT_SHIFT_SENSITIVITY, value, size=1)
+
+    def set_subject_recognition_af(self, value: int) -> None:
+        """Enable or disable subject-recognition AF."""
+        self.set_property(DeviceProperty.SUBJECT_RECOGNITION_AF, value, size=2)
+
+    def get_focal_position(self) -> int:
+        """Read the current focal position as a raw integer value."""
+        info = self.get_property(DeviceProperty.FOCAL_POSITION_CURRENT)
+        return info.current_value if isinstance(info.current_value, int) else 0
+
+    # 6.2 White balance advanced
+
+    def set_wb_preset_color_temp(self, kelvin: int) -> None:
+        """Set the preset white balance colour temperature in Kelvin.
+
+        Typical valid range: 2500–9900 K in 100 K steps.
+        """
+        self.set_property(DeviceProperty.WB_PRESET_COLOR_TEMP, kelvin, size=2)
+
+    def set_wb_r_gain(self, value: int) -> None:
+        """Set the white balance R-gain offset."""
+        self.set_property(DeviceProperty.WB_R_GAIN, value, size=2)
+
+    def set_wb_b_gain(self, value: int) -> None:
+        """Set the white balance B-gain offset."""
+        self.set_property(DeviceProperty.WB_B_GAIN, value, size=2)
+
+    # 6.3 S&Q / HFR mode
+
+    def set_sq_mode(self, value: int) -> None:
+        """Enable or disable S&Q (Slow & Quick) movie mode."""
+        self.set_property(DeviceProperty.SQ_MODE_SETTING, value, size=2)
+
+    def set_sq_frame_rate(self, value: int) -> None:
+        """Set the S&Q recording frame rate code."""
+        self.set_property(DeviceProperty.SQ_FRAME_RATE, value, size=2)
+
+    def set_sq_record_setting(self, value: int) -> None:
+        """Set the S&Q recording setting (resolution/codec combination)."""
+        self.set_property(DeviceProperty.SQ_RECORD_SETTING, value, size=4)
+
+    # 6.4 Media slot status readers
+
+    def get_media_slot1_status(self) -> dict:
+        """Read the status of media SLOT1.
+
+        Returns
+        -------
+        dict
+            Keys: ``status``, ``remaining_shots``, ``remaining_time_s``.
+        """
+        props = self.get_all_properties()
+        return {
+            "status": props.get(DeviceProperty.MEDIA_SLOT1_STATUS, DevicePropInfo()).current_value,
+            "remaining_shots": props.get(DeviceProperty.MEDIA_SLOT1_REMAINING_SHOTS, DevicePropInfo()).current_value,
+            "remaining_time_s": props.get(DeviceProperty.MEDIA_SLOT1_REMAINING_TIME, DevicePropInfo()).current_value,
+        }
+
+    def get_media_slot2_status(self) -> dict:
+        """Read the status of media SLOT2.
+
+        Returns
+        -------
+        dict
+            Keys: ``status``, ``remaining_shots``, ``remaining_time_s``.
+        """
+        props = self.get_all_properties()
+        return {
+            "status": props.get(DeviceProperty.MEDIA_SLOT2_STATUS, DevicePropInfo()).current_value,
+            "remaining_shots": props.get(DeviceProperty.MEDIA_SLOT2_REMAINING_SHOTS, DevicePropInfo()).current_value,
+            "remaining_time_s": props.get(DeviceProperty.MEDIA_SLOT2_REMAINING_TIME, DevicePropInfo()).current_value,
+        }
+
+    # 6.5 Battery extended info
+
+    def get_battery_info(self) -> dict:
+        """Read extended battery information.
+
+        Returns
+        -------
+        dict
+            Keys: ``remaining_minutes``, ``remaining_voltage``,
+            ``total_remaining``, ``power_source``.
+        """
+        props = self.get_all_properties()
+        return {
+            "remaining_minutes": props.get(DeviceProperty.BATTERY_REMAINING_MINUTES, DevicePropInfo()).current_value,
+            "remaining_voltage": props.get(DeviceProperty.BATTERY_REMAINING_VOLTAGE, DevicePropInfo()).current_value,
+            "total_remaining": props.get(DeviceProperty.TOTAL_BATTERY_REMAINING, DevicePropInfo()).current_value,
+            "power_source": props.get(DeviceProperty.POWER_SOURCE, DevicePropInfo()).current_value,
+        }
+
+    # 6.6 System info readers
+
+    def get_lens_info(self) -> dict:
+        """Read attached lens metadata.
+
+        Returns
+        -------
+        dict
+            Keys: ``model_name``, ``serial_number``, ``version_number``.
+        """
+        props = self.get_all_properties()
+        return {
+            "model_name": props.get(DeviceProperty.LENS_MODEL_NAME, DevicePropInfo()).current_value,
+            "serial_number": props.get(DeviceProperty.LENS_SERIAL_NUMBER, DevicePropInfo()).current_value,
+            "version_number": props.get(DeviceProperty.LENS_VERSION_NUMBER, DevicePropInfo()).current_value,
+        }
+
+    def get_software_version(self) -> str:
+        """Read the camera firmware version string."""
+        info = self.get_property(DeviceProperty.SOFTWARE_VERSION)
+        val = info.current_value
+        return str(val) if val is not None else ""
+
+    # ------------------------------------------------------------------
+    # Phase 7 — Event system public API
+    # ------------------------------------------------------------------
+
+    def on_event(
+        self, code: int, callback: Callable[[PTPEvent], None]
+    ) -> None:
+        """Register a callback to be invoked when *code* is received.
+
+        Parameters
+        ----------
+        code : int
+            An :class:`SDIOEventCode` value (or raw int).
+        callback : callable
+            Called with a :class:`~pysonycam.ptp.PTPEvent` argument.
+        """
+        self._event_dispatcher.register(code, callback)
+
+    def start_event_listener(self) -> None:
+        """Start the background event-listener thread."""
+        self._event_dispatcher.start()
+
+    def stop_event_listener(self) -> None:
+        """Stop the background event-listener thread."""
+        self._event_dispatcher.stop()
+
+    # ------------------------------------------------------------------
+    # Phase 9 — Medium-priority SDIO operations
+    # ------------------------------------------------------------------
+
+    def get_lens_information(self) -> bytes:
+        """Retrieve raw lens information from the camera.
+
+        Returns
+        -------
+        bytes
+            Raw payload from SDIO_GetLensInformation (0x9223).
+        """
+        resp, data = self._transport.receive(SDIOOpCode.GET_LENS_INFORMATION)
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetLensInformation failed: 0x{resp.code:04X}", resp.code
+            )
+        return data
+
+    def get_vendor_code_version(self) -> int:
+        """Return the SDIO vendor code version as a 16-bit integer.
+
+        The expected value for v3 cameras is ``SDI_VERSION_V3`` (0x012C).
+        """
+        resp, data = self._transport.receive(SDIOOpCode.GET_VENDOR_CODE_VERSION)
+        if resp.code != ResponseCode.OK:
+            raise TransactionError(
+                f"GetVendorCodeVersion failed: 0x{resp.code:04X}", resp.code
+            )
+        if len(data) < 2:
+            return 0
+        return struct.unpack_from("<H", data, 0)[0]
+
+    def operation_results_supported(self) -> bool:
+        """Return True if the camera supports async operation results."""
+        resp = self._transport.send(SDIOOpCode.OPERATION_RESULTS_SUPPORTED)
+        return resp.code == ResponseCode.OK
 
     # ------------------------------------------------------------------
     # LiveView
