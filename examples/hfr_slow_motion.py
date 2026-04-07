@@ -46,6 +46,13 @@ import time
 import logging
 from pathlib import Path
 
+try:
+    import cv2
+    import numpy as np
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
+
 from pysonycam import SonyCamera, DeviceProperty, ExposureMode
 from pysonycam.constants import SDIOOpCode, OperatingMode
 from pysonycam.format import format_value
@@ -74,9 +81,104 @@ FORMAT_FOLDER = 0x3001
 FORMAT_MP4 = 0xB982
 STORAGE_ID = 0x00010001
 
+WINDOW_LIVE = "HFR LiveView"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def decode_jpeg(data: bytes):
+    """Decode JPEG bytes to an OpenCV BGR image. Returns None on failure."""
+    if not HAS_CV2 or not data:
+        return None
+    arr = np.frombuffer(data, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+def show_liveview(camera: SonyCamera, duration: float = 0, poll_key: bool = True) -> int:
+    """Show the LiveView feed in an OpenCV window.
+
+    Parameters
+    ----------
+    camera : SonyCamera
+        Connected and authenticated camera.
+    duration : float
+        How long to show the feed in seconds. 0 = show one frame and return.
+    poll_key : bool
+        Whether to poll for key presses and return them.
+
+    Returns
+    -------
+    int
+        The key code pressed (0 if none / no OpenCV).
+    """
+    if not HAS_CV2:
+        return 0
+
+    deadline = time.monotonic() + duration if duration > 0 else 0
+    key = 0
+
+    while True:
+        try:
+            frame = camera.get_liveview_frame()
+            img = decode_jpeg(frame)
+            if img is not None:
+                cv2.imshow(WINDOW_LIVE, img)
+        except Exception:
+            pass
+
+        if poll_key:
+            k = cv2.waitKey(30) & 0xFF
+            if k != 0xFF:
+                key = k
+                break
+        else:
+            cv2.waitKey(1)
+
+        if deadline and time.monotonic() >= deadline:
+            break
+
+    return key
+
+
+def liveview_wait(camera: SonyCamera, seconds: float, log_interval: int = 10) -> int:
+    """Wait for *seconds* while showing the LiveView feed.
+
+    Returns the key code if a key was pressed, else 0.
+    """
+    if not HAS_CV2:
+        # Fall back to plain sleep with countdown
+        for remaining in range(int(seconds), 0, -1):
+            time.sleep(1.0)
+            if remaining % log_interval == 0 and remaining != int(seconds):
+                print(f"       {remaining}s remaining...")
+        return 0
+
+    deadline = time.monotonic() + seconds
+    last_log = time.monotonic()
+    while time.monotonic() < deadline:
+        try:
+            frame = camera.get_liveview_frame()
+            img = decode_jpeg(frame)
+            if img is not None:
+                remaining = max(0, int(deadline - time.monotonic()))
+                cv2.setWindowTitle(WINDOW_LIVE, f"HFR LiveView  [{remaining}s]")
+                cv2.imshow(WINDOW_LIVE, img)
+        except Exception:
+            pass
+
+        k = cv2.waitKey(30) & 0xFF
+        if k != 0xFF:
+            return k
+
+        now = time.monotonic()
+        if now - last_log >= log_interval:
+            remaining = max(0, int(deadline - now))
+            print(f"       {remaining}s remaining...")
+            last_log = now
+
+    return 0
 
 
 def get_movie_status(camera: SonyCamera) -> int:
@@ -540,13 +642,13 @@ def unattended_loop(
         time.sleep(2.0)
         print("[OK] Camera should now be in STBY (buffering at high fps)")
 
-        # Step 2: Wait before trigger
+        # Step 2: Wait before trigger (with LiveView)
         if auto_trigger_delay > 0:
-            print(f"\n[2/6] Waiting {auto_trigger_delay}s before trigger...")
-            for remaining in range(auto_trigger_delay, 0, -1):
-                time.sleep(1.0)
-                if remaining % 10 == 0 and remaining != auto_trigger_delay:
-                    print(f"       {remaining}s remaining...")
+            print(f"\n[2/6] Waiting {auto_trigger_delay}s before trigger (LiveView active)...")
+            key = liveview_wait(camera, auto_trigger_delay)
+            if key == ord('q'):
+                print("\nUser quit during wait.")
+                break
         else:
             print("\n[2/6] Triggering immediately...")
 
@@ -585,76 +687,145 @@ def unattended_loop(
 def interactive_loop(
     camera: SonyCamera, output_dir: Path, hfr_mode: int = ExposureMode.HFR_P
 ) -> None:
-    """Interactive keyboard-driven HFR control."""
-    print("Controls:")
-    print("  ENTER   Enter / re-enter HFR STBY")
-    print("  R       Trigger recording (must be in STBY)")
-    print("  D       Download latest clip")
-    print("  S       Show camera status")
-    print("  Q       Quit")
-    print()
+    """Interactive keyboard-driven HFR control with LiveView."""
+    if HAS_CV2:
+        print("Controls (LiveView window must be focused for key presses):")
+        print("  SPACE   Enter / re-enter HFR STBY")
+        print("  R       Trigger recording (must be in STBY)")
+        print("  D       Download latest clip")
+        print("  S       Show camera status")
+        print("  Q       Quit")
+        print()
+        cv2.namedWindow(WINDOW_LIVE, cv2.WINDOW_NORMAL)
 
-    while True:
-        try:
-            cmd = input("> ").strip().upper()
-        except (EOFError, KeyboardInterrupt):
-            print("\nExiting...")
-            break
+        while True:
+            # Show LiveView and poll for keys
+            key = show_liveview(camera, duration=0, poll_key=True)
 
-        if cmd == "Q":
-            break
+            if key == ord('q'):
+                print("\nQuitting...")
+                break
 
-        elif cmd == "":
-            # ENTER = enter STBY
-            print("Entering HFR STBY...")
-            if enter_hfr_standby(camera):
-                time.sleep(2.0)
-                print("[OK] STBY active — buffering at high fps. Press R to trigger.")
-            else:
-                print("[ERROR] Could not enter STBY.")
+            elif key == ord(' '):
+                # SPACE = enter STBY
+                print("Entering HFR STBY...")
+                if enter_hfr_standby(camera):
+                    time.sleep(2.0)
+                    print("[OK] STBY active — buffering at high fps. Press R to trigger.")
+                else:
+                    print("[ERROR] Could not enter STBY.")
 
-        elif cmd == "R":
-            print("Triggering recording...")
-            if not trigger_recording(camera):
-                print("[ERROR] Trigger failed. Is camera in STBY?")
-                continue
+            elif key == ord('r'):
+                print("Triggering recording...")
+                if not trigger_recording(camera):
+                    print("[ERROR] Trigger failed. Is camera in STBY?")
+                    continue
 
-            print("[OK] Triggered — processing...")
-            wait_for_processing(camera, timeout=120)
-            time.sleep(5.0)
-            print("Downloading...")
-            saved = download_latest_mp4(camera, output_dir)
-            if saved:
-                print(f"[OK] Saved: {saved}")
-                restore_hfr_mode(camera, hfr_mode)
-                print("[OK] HFR mode restored. Press ENTER to re-enter STBY.")
-            else:
-                print("[WARN] Download failed. Use D to retry.")
-                restore_hfr_mode(camera, hfr_mode)
-
-        elif cmd == "D":
-            print("Downloading latest MP4...")
-            try:
+                print("[OK] Triggered — processing...")
+                wait_for_processing(camera, timeout=120)
+                time.sleep(5.0)
+                print("Downloading...")
                 saved = download_latest_mp4(camera, output_dir)
                 if saved:
                     print(f"[OK] Saved: {saved}")
+                    restore_hfr_mode(camera, hfr_mode)
+                    print("[OK] HFR mode restored. Press SPACE to re-enter STBY.")
                 else:
-                    print("[WARN] No MP4 found.")
-            except Exception as e:
-                print(f"[ERROR] Download failed: {e}")
-            restore_hfr_mode(camera, hfr_mode)
+                    print("[WARN] Download failed. Use D to retry.")
+                    restore_hfr_mode(camera, hfr_mode)
 
-        elif cmd == "S":
-            print("Status:")
-            print_status(camera)
+            elif key == ord('d'):
+                print("Downloading latest MP4...")
+                try:
+                    saved = download_latest_mp4(camera, output_dir)
+                    if saved:
+                        print(f"[OK] Saved: {saved}")
+                    else:
+                        print("[WARN] No MP4 found.")
+                except Exception as e:
+                    print(f"[ERROR] Download failed: {e}")
+                restore_hfr_mode(camera, hfr_mode)
 
-        elif cmd == "C":
-            # Hidden: cancel current recording
-            cancel_hfr_recording(camera)
-            print("[OK] Recording canceled.")
+            elif key == ord('s'):
+                print("Status:")
+                print_status(camera)
 
-        else:
-            print(f"Unknown: {cmd}")
+            elif key == ord('c'):
+                cancel_hfr_recording(camera)
+                print("[OK] Recording canceled.")
+
+        cv2.destroyAllWindows()
+
+    else:
+        # Fallback: text-only interactive mode (no OpenCV)
+        print("Controls:")
+        print("  ENTER   Enter / re-enter HFR STBY")
+        print("  R       Trigger recording (must be in STBY)")
+        print("  D       Download latest clip")
+        print("  S       Show camera status")
+        print("  Q       Quit")
+        print("  (Install opencv-python for LiveView: pip install opencv-python numpy)")
+        print()
+
+        while True:
+            try:
+                cmd = input("> ").strip().upper()
+            except (EOFError, KeyboardInterrupt):
+                print("\nExiting...")
+                break
+
+            if cmd == "Q":
+                break
+
+            elif cmd == "":
+                print("Entering HFR STBY...")
+                if enter_hfr_standby(camera):
+                    time.sleep(2.0)
+                    print("[OK] STBY active — buffering at high fps. Press R to trigger.")
+                else:
+                    print("[ERROR] Could not enter STBY.")
+
+            elif cmd == "R":
+                print("Triggering recording...")
+                if not trigger_recording(camera):
+                    print("[ERROR] Trigger failed. Is camera in STBY?")
+                    continue
+
+                print("[OK] Triggered — processing...")
+                wait_for_processing(camera, timeout=120)
+                time.sleep(5.0)
+                print("Downloading...")
+                saved = download_latest_mp4(camera, output_dir)
+                if saved:
+                    print(f"[OK] Saved: {saved}")
+                    restore_hfr_mode(camera, hfr_mode)
+                    print("[OK] HFR mode restored. Press ENTER to re-enter STBY.")
+                else:
+                    print("[WARN] Download failed. Use D to retry.")
+                    restore_hfr_mode(camera, hfr_mode)
+
+            elif cmd == "D":
+                print("Downloading latest MP4...")
+                try:
+                    saved = download_latest_mp4(camera, output_dir)
+                    if saved:
+                        print(f"[OK] Saved: {saved}")
+                    else:
+                        print("[WARN] No MP4 found.")
+                except Exception as e:
+                    print(f"[ERROR] Download failed: {e}")
+                restore_hfr_mode(camera, hfr_mode)
+
+            elif cmd == "S":
+                print("Status:")
+                print_status(camera)
+
+            elif cmd == "C":
+                cancel_hfr_recording(camera)
+                print("[OK] Recording canceled.")
+
+            else:
+                print(f"Unknown: {cmd}")
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +856,10 @@ def main() -> None:
 
     print(f"HFR Slow Motion — mode: HFR ({args.mode})")
     print("=" * 50)
+    if HAS_CV2:
+        print("LiveView: enabled (opencv-python detected)")
+    else:
+        print("LiveView: disabled (install opencv-python numpy for live preview)")
     print()
     print("Camera requirements:")
     print("  - Dial set to HFR / Movie position")
