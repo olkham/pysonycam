@@ -42,6 +42,7 @@ Usage examples
 
 import argparse
 import sys
+import time
 
 # ---------------------------------------------------------------------------
 # Built-in PP presets
@@ -229,6 +230,14 @@ def main() -> None:
         "--list", "-l", action="store_true",
         help="List available built-in presets and exit.",
     )
+    parser.add_argument(
+        "--read", "-r", action="store_true",
+        help="Read back PP slot and all bulk-readable properties after writing (diagnostic).",
+    )
+    parser.add_argument(
+        "--dump", action="store_true",
+        help="Dump all property codes returned by GetAllExtDevicePropInfo (diagnostic).",
+    )
     args = parser.parse_args()
 
     # --list — no camera needed -----------------------------------------------
@@ -242,7 +251,8 @@ def main() -> None:
 
     # Nothing requested --------------------------------------------------------
     if args.slot is None and args.preset is None and args.gamma is None \
-            and args.color_mode is None and args.copy_to is None:
+            and args.color_mode is None and args.copy_to is None \
+            and not args.read and not args.dump:
         parser.print_help()
         return
 
@@ -285,16 +295,40 @@ def main() -> None:
             camera.set_picture_profile(slot_val)
             label = "OFF" if args.slot == 0 else f"PP{args.slot}"
             print(f"Picture Profile slot set to {label}.")
+            # Give the camera a moment to commit the slot change before
+            # writing sub-parameters.
+            time.sleep(0.3)
 
         writing_params = (
             args.preset is not None
             or args.gamma is not None
             or args.color_mode is not None
         )
-        if writing_params and args.slot is None:
-            # No slot given — check the camera's current slot so we can
-            # report which slot we're targeting.
+        if writing_params:
+            # Fetch bulk property list to (a) check which slot is active and
+            # (b) verify this camera supports PP sub-parameter editing.
             props = camera.get_all_properties()
+
+            # Capability check: PP sub-parameters (0xD0E0-0xD0F8) only appear
+            # in the bulk response on supported cameras (ILCE-1, ILCE-7M4,
+            # FX3, etc.).  The RX100M7 and several other models only support
+            # PP slot selection (0xD23F) — sub-parameter writes are silently
+            # discarded by the camera.
+            if DeviceProperty.PP_GAMMA not in props:
+                print(
+                    "Error: this camera does not support remote PP sub-parameter\n"
+                    "editing via the SDK (PP Gamma / Color Mode / Detail etc. are\n"
+                    "not exposed in the device property list).\n"
+                    "\n"
+                    "PP slot selection (--slot N) is still supported.\n"
+                    "\n"
+                    "Cameras with full PP sub-parameter editing support include:\n"
+                    "  ILCE-1/1M2, ILCE-9M3, ILCE-7M4/7M5, ILCE-7SM3,\n"
+                    "  ILCE-7CM2/7CR, ILCE-6700, ILME-FX3/FX30/FX2, ZV-E1.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
             slot_info = props.get(DeviceProperty.PICTURE_PROFILE)
             current_slot = slot_info.current_value if slot_info else None
 
@@ -308,7 +342,8 @@ def main() -> None:
                 )
                 sys.exit(1)
 
-            print(f"Writing to currently active slot PP{current_slot}.")
+            if args.slot is None:
+                print(f"Writing to currently active slot PP{current_slot}.")
 
         # 2. Apply a named preset (after activating the slot, so both happen).
         if args.preset is not None:
@@ -366,6 +401,51 @@ def main() -> None:
                 sys.exit(1)
             camera.copy_picture_profile(dest_slot=args.copy_to)
             print(f"Picture Profile copied to PP{args.copy_to}.")
+
+        # 5. Diagnostic read-back via GetAllExtDevicePropInfo (0x9209).
+        # NOTE: PP sub-parameters (0xD0E0-0xD0F8) are NOT included in the
+        # bulk property response on the RX100M7.  Individual SDIOGetExtDevicePropInfo
+        # (0x9208) calls cause a USB pipe stall on this camera.
+        # To verify writes took effect: disconnect USB then check the camera menu.
+        if args.read or args.dump:
+            time.sleep(0.2)
+            props = camera.get_all_properties()
+
+            if args.read:
+                _PP_DIAG = [
+                    (DeviceProperty.PICTURE_PROFILE, "Slot       (0xD23F)"),
+                    (DeviceProperty.PP_GAMMA,        "Gamma      (0xD0E1)"),
+                    (DeviceProperty.PP_COLOR_MODE,   "Color Mode (0xD0E9)"),
+                    (DeviceProperty.PP_BLACK_LEVEL,  "Blk Level  (0xD0E0)"),
+                    (DeviceProperty.PP_SATURATION,   "Saturation (0xD0EA)"),
+                    (DeviceProperty.PP_DETAIL_LEVEL, "Detail     (0xD0F2)"),
+                ]
+                print("\nCamera read-back (GetAllExtDevicePropInfo):")
+                for code, label in _PP_DIAG:
+                    info = props.get(code)
+                    if info is None:
+                        print(f"  {label}: not in bulk response")
+                    else:
+                        print(
+                            f"  {label}: value=0x{info.current_value:04X}  "
+                            f"is_enable={info.is_enable}"
+                        )
+                print(
+                    "\n  NOTE: PP sub-parameters are write-only from the SDK's perspective\n"
+                    "  on this camera — they do not appear in the property dump.\n"
+                    "  Disconnect USB and check the camera menu to confirm writes."
+                )
+
+            if args.dump:
+                print(f"\nAll {len(props)} property codes in bulk response:")
+                for code in sorted(props):
+                    info = props[code]
+                    val = info.current_value
+                    val_str = f"0x{val:08X}" if isinstance(val, int) else repr(val)
+                    print(
+                        f"  0x{code:04X}  value={val_str}"
+                        f"  enabled={info.is_enable}  rw={'RW' if info.is_writable else 'RO'}"
+                    )
 
         print("Done.")
 
