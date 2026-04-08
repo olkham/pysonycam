@@ -292,11 +292,12 @@ Log levels:
 │   ├── timelapse.py            # Fixed-interval timelapse with optional video assembly
 │   ├── hfr_slow_motion.py      # HFR slow-motion recording (auto-loop or interactive)
 │   ├── sq_mode_capture.py      # S&Q movie recording with event confirmation
-│   ├── custom_white_balance.py # Custom WB measurement sequence with event feedback
-│   ├── browse_and_download.py  # Browse card content, download full or proxy, delete
-│   ├── download_videos.py      # Download MP4s via bare PTP / SDIO fallback strategies
-│   ├── camera_status.py        # Full diagnostic report (firmware, lens, battery, slots)
-│   └── event_listener.py       # Register event callbacks and listen for 30 s
+│   ├── custom_white_balance.py    # Custom WB measurement sequence with event feedback
+│   ├── creative_look_recipes.py  # Apply film-simulation recipes (16 built-in looks)
+│   ├── browse_and_download.py    # Browse card content, download full or proxy, delete
+│   ├── download_videos.py        # Download MP4s via bare PTP / SDIO fallback strategies
+│   ├── camera_status.py          # Full diagnostic report (firmware, lens, battery, slots)
+│   └── event_listener.py         # Register event callbacks and listen for 30 s
 ├── CameraRemoteCommadExamples/ # Sony C/C++ SDK reference examples
 │   ├── example-v2-linux/       # v2 protocol — Linux (libusb)
 │   ├── example-v2-windows/     # v2 protocol — Windows (MFC)

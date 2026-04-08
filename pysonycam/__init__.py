@@ -17,6 +17,8 @@ Basic usage::
 
 from pysonycam.camera import SonyCamera
 from pysonycam.constants import (
+    CreativeLookName,
+    CreativeStyleName,
     DeviceProperty,
     DriveMode,
     ExposureMode,
@@ -24,6 +26,14 @@ from pysonycam.constants import (
     WhiteBalance,
     FocusMode,
     FocusArea,
+    PictureProfileSlot,
+    PPGamma,
+    PPBlackGammaRange,
+    PPKneeMode,
+    PPKneeAutoSensitivity,
+    PPColorMode,
+    PPDetailAdjustMode,
+    PPDetailBWBalance,
 )
 from pysonycam.format import property_name, format_value
 from pysonycam.exceptions import (
@@ -45,6 +55,16 @@ __all__ = [
     "WhiteBalance",
     "FocusMode",
     "FocusArea",
+    "CreativeLookName",
+    "CreativeStyleName",
+    "PictureProfileSlot",
+    "PPGamma",
+    "PPBlackGammaRange",
+    "PPKneeMode",
+    "PPKneeAutoSensitivity",
+    "PPColorMode",
+    "PPDetailAdjustMode",
+    "PPDetailBWBalance",
     "property_name",
     "format_value",
     "SonyCameraError",

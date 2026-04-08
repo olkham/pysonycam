@@ -67,6 +67,18 @@ pip install -r examples/requirements.txt
 |---|---|
 | [advanced_focus.py](advanced_focus.py) | Five selectable focus demos: focus-point placement (`set_focus_point`), magnifier on/off with zoom levels, continuous focus drive near/far (`focus_continuous`), zoom/focus position presets (save/load), and AF transition speed + subject-shift sensitivity settings. Run with `--demo NAME` or `--all` (default). |
 
+### Creative Look / Creative Style
+
+| Script | Summary |
+|---|---|
+| [creative_look_recipes.py](creative_look_recipes.py) | Apply film-simulation recipes loaded from the bundled `docs/FREE Sony Creative Look Recipes_recipes.json` (16 recipes). Auto-detects whether the camera uses Creative Look (newer) or Creative Style (older). `--list` prints all recipes; `--recipe NAME` applies one by name; `--look ABBR` sets a bare Creative Look (e.g. `FL`, `VV2`); `--style NAME` sets a Creative Style (e.g. `VIVID`); `--disable-pp` turns Picture Profile OFF first (required when a PP is active); `--demo` runs a per-setter walkthrough using individual methods. |
+
+### Picture Profile
+
+| Script | Summary |
+|---|---|
+| [picture_profile.py](picture_profile.py) | Edit Sony Picture Profile (PP) parameters: gamma curve, colour mode, black level, knee, detail, and more — for all 8 built-in presets (S-Log3/S-Gamut3.Cine, HLG, S-Cinetone, etc.) or individually. `--list` shows preset names and settings; `--preset NAME` applies a full preset; `--slot N` activates PP slot 1–11 (0 = OFF); `--gamma NAME` and `--color-mode NAME` override individual parameters; `--copy-to N` copies the active slot to another. |
+
 ### White Balance
 
 | Script | Summary |
@@ -95,6 +107,7 @@ pip install -r examples/requirements.txt
 | `libusb1` | All scripts (via `pysonycam`) |
 | `opencv-python` | `live_viewfinder.py`, `timelapse.py` (live/video mode), `astrophotography.py` (live mode), `hfr_slow_motion.py` (status HUD) |
 | `numpy` | Same four scripts as `opencv-python` |
+| recipes JSON | `creative_look_recipes.py` reads `docs/FREE Sony Creative Look Recipes_recipes.json`. Regenerate with `python scripts/extract_recipes.py` if the file is missing. |
 
 Install the optional dependencies:
 

@@ -370,8 +370,37 @@ class DeviceProperty(IntEnum):
     HLG_STILL = 0xD15D
     COMPRESSION_FILE_FORMAT = 0xD287
 
+    # Picture Profile — slot selector + all adjustable parameters
+    PICTURE_PROFILE = 0xD23F            # UINT8  slot: 0x00=OFF, 0x01-0x0B=PP1-11, 0x41-0x44=LUT1-4
+    PP_BLACK_LEVEL = 0xD0E0             # INT8   Range
+    PP_GAMMA = 0xD0E1                   # UINT16 Enumeration
+    PP_BLACK_GAMMA_RANGE = 0xD0E2       # UINT8  Enumeration  (Wide/Middle/Narrow)
+    PP_BLACK_GAMMA_LEVEL = 0xD0E3       # INT8   Range
+    PP_KNEE_MODE = 0xD0E4               # UINT8  Enumeration  (Auto/Manual)
+    PP_KNEE_AUTOSET_MAX_POINT = 0xD0E5  # UINT16 Enumeration  (100× percentage)
+    PP_KNEE_AUTOSET_SENSITIVITY = 0xD0E6 # UINT8 Enumeration  (Low/Mid/High)
+    PP_KNEE_MANUALSET_POINT = 0xD0E7    # UINT16 Enumeration  (100× percentage)
+    PP_KNEE_MANUALSET_SLOPE = 0xD0E8    # INT8   Range
+    PP_COLOR_MODE = 0xD0E9              # UINT16 Enumeration
+    PP_SATURATION = 0xD0EA              # INT8   Range
+    PP_COLOR_PHASE = 0xD0EB             # INT8   Range
+    PP_COLOR_DEPTH_RED = 0xD0EC         # INT8   Range
+    PP_COLOR_DEPTH_GREEN = 0xD0ED       # INT8   Range
+    PP_COLOR_DEPTH_BLUE = 0xD0EE        # INT8   Range
+    PP_COLOR_DEPTH_CYAN = 0xD0EF        # INT8   Range
+    PP_COLOR_DEPTH_MAGENTA = 0xD0F0     # INT8   Range
+    PP_COLOR_DEPTH_YELLOW = 0xD0F1      # INT8   Range
+    PP_DETAIL_LEVEL = 0xD0F2            # INT8   Range
+    PP_DETAIL_ADJUST_MODE = 0xD0F3      # UINT8  Enumeration  (Auto/Manual)
+    PP_DETAIL_VH_BALANCE = 0xD0F4       # INT8   Range
+    PP_DETAIL_BW_BALANCE = 0xD0F5       # UINT8  Enumeration  (Type1-5)
+    PP_DETAIL_LIMIT = 0xD0F6            # INT8   Range
+    PP_DETAIL_CRISPENING = 0xD0F7       # INT8   Range
+    PP_DETAIL_HIGHLIGHT_DETAIL = 0xD0F8 # INT8   Range
+    COPY_PICTURE_PROFILE = 0xD0F9       # UINT8  Write-only; value = dest slot (1-11)
+    RESET_PP_ENABLE_STATUS = 0xD107     # UINT8  Read-only; 0x01 when reset is available
+
     # Creative
-    PICTURE_PROFILE = 0xD23F
     CREATIVE_LOOK = 0xD0FA
     CREATIVE_LOOK_CONTRAST = 0xD0FB
     CREATIVE_LOOK_HIGHLIGHTS = 0xD0FC
@@ -595,6 +624,178 @@ class DriveMode(IntEnum):
     SELF_TIMER_5 = 0x00038003
     SELF_TIMER_10 = 0x00038004
     SELF_TIMER_2 = 0x00038005
+
+
+class PictureProfileSlot(IntEnum):
+    """Values for :attr:`DeviceProperty.PICTURE_PROFILE` (0xD23F).
+
+    Source: Camera Control PTP v3 reference, page 471.
+    """
+    OFF   = 0x00
+    PP1   = 0x01
+    PP2   = 0x02
+    PP3   = 0x03
+    PP4   = 0x04
+    PP5   = 0x05
+    PP6   = 0x06
+    PP7   = 0x07
+    PP8   = 0x08
+    PP9   = 0x09
+    PP10  = 0x0A
+    PP11  = 0x0B
+    LUT1  = 0x41
+    LUT2  = 0x42
+    LUT3  = 0x43
+    LUT4  = 0x44
+
+
+class PPGamma(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_GAMMA` (0xD0E1).
+
+    Source: Camera Control PTP v3 reference, page 293.
+    """
+    MOVIE        = 0x0001
+    STILL        = 0x0002
+    S_CINETONE   = 0x0003
+    CINE1        = 0x0101
+    CINE2        = 0x0102
+    CINE3        = 0x0103
+    CINE4        = 0x0104
+    ITU709       = 0x0201
+    ITU709_800   = 0x0202   # ITU709(800%)
+    S_LOG2       = 0x0302
+    S_LOG3       = 0x0303
+    HLG          = 0x0401
+    HLG1         = 0x0402
+    HLG2         = 0x0403
+    HLG3         = 0x0404
+
+
+class PPBlackGammaRange(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_BLACK_GAMMA_RANGE` (0xD0E2).
+
+    Source: Camera Control PTP v3 reference, page 294.
+    """
+    WIDE   = 0x01
+    MIDDLE = 0x02
+    NARROW = 0x03
+
+
+class PPKneeMode(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_KNEE_MODE` (0xD0E4).
+
+    Source: Camera Control PTP v3 reference, page 295.
+    """
+    AUTO   = 0x01
+    MANUAL = 0x02
+
+
+class PPKneeAutoSensitivity(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_KNEE_AUTOSET_SENSITIVITY` (0xD0E6).
+
+    Source: Camera Control PTP v3 reference, page 296.
+    """
+    LOW  = 0x01
+    MID  = 0x02
+    HIGH = 0x03
+
+
+class PPColorMode(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_COLOR_MODE` (0xD0E9).
+
+    Source: Camera Control PTP v3 reference, page 298.
+    """
+    MOVIE          = 0x0001
+    STILL          = 0x0002
+    S_CINETONE     = 0x0003
+    CINEMA         = 0x0004
+    PRO            = 0x0005
+    ITU709_MATRIX  = 0x0006
+    BLACK_AND_WHITE = 0x0007
+    S_GAMUT3_CINE  = 0x0008
+    S_GAMUT3       = 0x0009
+    BT2020         = 0x000A
+    P709           = 0x000B
+    S_GAMUT        = 0x000C
+    P709TONE       = 0x000D
+
+
+class PPDetailAdjustMode(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_DETAIL_ADJUST_MODE` (0xD0F3).
+
+    Source: Camera Control PTP v3 reference, page 304.
+    """
+    AUTO   = 0x01
+    MANUAL = 0x02
+
+
+class PPDetailBWBalance(IntEnum):
+    """Values for :attr:`DeviceProperty.PP_DETAIL_BW_BALANCE` (0xD0F5).
+
+    Source: Camera Control PTP v3 reference, page 305.
+    """
+    TYPE1 = 0x01
+    TYPE2 = 0x02
+    TYPE3 = 0x03
+    TYPE4 = 0x04
+    TYPE5 = 0x05
+
+
+class CreativeLookName(IntEnum):
+    """Values for :attr:`DeviceProperty.CREATIVE_LOOK` (0xD0FA).
+
+    Source: Camera Control PTP v3 reference, page 309.
+    """
+    ST  = 0x0001   # Standard
+    PT  = 0x0002   # Portrait
+    NT  = 0x0003   # Neutral
+    VV  = 0x0004   # Vivid
+    VV2 = 0x0005   # Vivid 2
+    FL  = 0x0006   # Film
+    IN  = 0x0007   # Instant
+    SH  = 0x0008   # Soft Highkey
+    BW  = 0x0009   # Black & White
+    SE  = 0x000A   # Sepia
+    FL2 = 0x000B   # Film 2
+    FL3 = 0x000C   # Film 3
+    NL  = 0x000D   # Natural Look  (may vary by camera firmware)
+    CUSTOM_1 = 0x0101
+    CUSTOM_2 = 0x0102
+    CUSTOM_3 = 0x0103
+    CUSTOM_4 = 0x0104
+    CUSTOM_5 = 0x0105
+    CUSTOM_6 = 0x0106
+
+
+class CreativeStyleName(IntEnum):
+    """Values for :attr:`DeviceProperty.CREATIVE_STYLE` (0xD240).
+
+    Used on older/mid-range cameras (A9 II, A7R IV, A7C, ZV-E10, …) that have
+    the *Creative Style* menu instead of Creative Look.  Only the base style is
+    remotely selectable; per-style contrast/saturation/sharpness tuning must be
+    done on-camera.
+
+    Source: Camera Control PTP v3 reference, page 472.
+    """
+    STANDARD      = 0x01
+    VIVID         = 0x02
+    PORTRAIT      = 0x03
+    LANDSCAPE     = 0x04
+    SUNSET        = 0x05
+    BW            = 0x06   # Black & White
+    LIGHT         = 0x07
+    NEUTRAL       = 0x08
+    CLEAR         = 0x09
+    DEEP          = 0x0A
+    NIGHT_VIEW    = 0x0B
+    AUTUMN_LEAVES = 0x0C
+    SEPIA         = 0x0D
+    CUSTOM_BOX1   = 0x0E
+    CUSTOM_BOX2   = 0x0F
+    CUSTOM_BOX3   = 0x10
+    CUSTOM_BOX4   = 0x11
+    CUSTOM_BOX5   = 0x12
+    CUSTOM_BOX6   = 0x13
 
 
 class BatteryLevel(IntEnum):

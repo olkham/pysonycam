@@ -1117,6 +1117,378 @@ class SonyCamera:
         return str(val) if val is not None else ""
 
     # ------------------------------------------------------------------
+    # Phase 6b — Creative Look
+    # ------------------------------------------------------------------
+
+    def set_creative_look(self, look: int) -> None:
+        """Set the Creative Look base style.
+
+        Parameters
+        ----------
+        look : int
+            A :class:`~pysonycam.constants.CreativeLookName` value or raw int.
+            E.g. ``CreativeLookName.ST``, ``CreativeLookName.FL``, etc.
+        """
+        self.set_property(DeviceProperty.CREATIVE_LOOK, int(look), size=2)
+
+    def set_creative_look_contrast(self, value: int) -> None:
+        """Set Creative Look contrast adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_CONTRAST, value, size=1)
+
+    def set_creative_look_highlights(self, value: int) -> None:
+        """Set Creative Look highlights adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_HIGHLIGHTS, value, size=1)
+
+    def set_creative_look_shadows(self, value: int) -> None:
+        """Set Creative Look shadows adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_SHADOWS, value, size=1)
+
+    def set_creative_look_fade(self, value: int) -> None:
+        """Set Creative Look fade (0…+5)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_FADE, value, size=1)
+
+    def set_creative_look_saturation(self, value: int) -> None:
+        """Set Creative Look saturation adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_SATURATION, value, size=1)
+
+    def set_creative_look_sharpness(self, value: int) -> None:
+        """Set Creative Look sharpness adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_SHARPNESS, value, size=1)
+
+    def set_creative_look_sharpness_range(self, value: int) -> None:
+        """Set Creative Look sharpness range (0…3)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_SHARPNESS_RANGE, value, size=1)
+
+    def set_creative_look_clarity(self, value: int) -> None:
+        """Set Creative Look clarity adjustment (−9…+9)."""
+        self.set_property(DeviceProperty.CREATIVE_LOOK_CLARITY, value, size=1)
+
+    def apply_creative_look_recipe(self, recipe: dict) -> None:
+        """Apply a Creative Look recipe dict in a single call.
+
+        The *recipe* dict matches the JSON schema produced by
+        ``scripts/extract_recipes.py``:
+
+        .. code-block:: python
+
+            {
+                "creative_look": "FL",   # str abbreviation or int code
+                "contrast":      -6,     # optional, None = skip
+                "highlights":    -3,
+                "shadows":       -9,
+                "fade":           1,
+                "saturation":     6,
+                "sharpness":      0,
+                "sharpness_range": 1,
+                "clarity":        0,
+            }
+
+        Parameters
+        ----------
+        recipe : dict
+            Recipe dict.  Missing or ``None`` fields are silently skipped.
+        """
+        from pysonycam.constants import CreativeLookName
+
+        look_raw = recipe.get("creative_look")
+        if look_raw is not None:
+            if isinstance(look_raw, str):
+                try:
+                    look_code = CreativeLookName[look_raw.upper()]
+                except KeyError:
+                    raise ValueError(
+                        f"Unknown Creative Look abbreviation: {look_raw!r}. "
+                        f"Valid values: {[m.name for m in CreativeLookName]}"
+                    )
+            else:
+                look_code = int(look_raw)
+            self.set_creative_look(look_code)
+
+        _tune_map = [
+            ("contrast",        self.set_creative_look_contrast),
+            ("highlights",      self.set_creative_look_highlights),
+            ("shadows",         self.set_creative_look_shadows),
+            ("fade",            self.set_creative_look_fade),
+            ("saturation",      self.set_creative_look_saturation),
+            ("sharpness",       self.set_creative_look_sharpness),
+            ("sharpness_range", self.set_creative_look_sharpness_range),
+            ("clarity",         self.set_creative_look_clarity),
+        ]
+        for field, setter in _tune_map:
+            val = recipe.get(field)
+            if val is not None:
+                setter(int(val))
+
+    def set_creative_style(self, style: int) -> None:
+        """Set the Creative Style base style (older cameras).
+
+        Used on cameras that have the *Creative Style* menu (e.g. A9 II, A7R IV,
+        A7C, ZV-E10) rather than the newer Creative Look system.  Only the base
+        style can be set remotely; per-style contrast/saturation/sharpness tuning
+        must be performed on-camera.
+
+        ``PICTURE_PROFILE`` must be set to OFF (0x00) first, or the camera will
+        accept the write but leave Creative Style unchanged.
+
+        Parameters
+        ----------
+        style : int
+            A :class:`~pysonycam.constants.CreativeStyleName` value or raw int.
+            E.g. ``CreativeStyleName.STANDARD``, ``CreativeStyleName.VIVID``, etc.
+        """
+        self.set_property(DeviceProperty.CREATIVE_STYLE, int(style), size=1)
+
+    def detect_look_system(self) -> str:
+        """Detect whether this camera uses Creative Look or Creative Style.
+
+        Returns
+        -------
+        str
+            ``"creative_look"`` if the camera supports the newer Creative Look
+            API (0xD0FA), ``"creative_style"`` if it uses the older Creative Style
+            API (0xD240), or ``"unknown"`` if neither is available.
+        """
+        props = self._properties
+        look = props.get(DeviceProperty.CREATIVE_LOOK)
+        style = props.get(DeviceProperty.CREATIVE_STYLE)
+        if look is not None:
+            return "creative_look"
+        if style is not None:
+            return "creative_style"
+        return "unknown"
+
+    # ------------------------------------------------------------------
+    # Picture Profile
+    # ------------------------------------------------------------------
+
+    def set_picture_profile(self, slot: int) -> None:
+        """Select an active Picture Profile slot (or turn PP off).
+
+        Parameters
+        ----------
+        slot : int
+            A :class:`~pysonycam.constants.PictureProfileSlot` value or raw int.
+            ``0x00`` / ``PictureProfileSlot.OFF`` turns Picture Profile off.
+            ``0x01``–``0x0B`` select PP1–PP11.
+            ``0x41``–``0x44`` select LUT1–LUT4 (cinema cameras only).
+        """
+        self.set_property(DeviceProperty.PICTURE_PROFILE, int(slot), size=1)
+
+    def set_pp_gamma(self, gamma: int) -> None:
+        """Set the gamma curve of the active Picture Profile.
+
+        Parameters
+        ----------
+        gamma : int
+            A :class:`~pysonycam.constants.PPGamma` value.
+            E.g. ``PPGamma.S_LOG3``, ``PPGamma.HLG``, ``PPGamma.CINE4``.
+        """
+        self.set_property(DeviceProperty.PP_GAMMA, int(gamma), size=2)
+
+    def set_pp_black_level(self, value: int) -> None:
+        """Set the black level of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_BLACK_LEVEL, value, size=1)
+
+    def set_pp_black_gamma_range(self, range_: int) -> None:
+        """Set the black gamma range (Wide/Middle/Narrow).
+
+        Parameters
+        ----------
+        range_ : int
+            A :class:`~pysonycam.constants.PPBlackGammaRange` value.
+        """
+        self.set_property(DeviceProperty.PP_BLACK_GAMMA_RANGE, int(range_), size=1)
+
+    def set_pp_black_gamma_level(self, value: int) -> None:
+        """Set the black gamma level of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_BLACK_GAMMA_LEVEL, value, size=1)
+
+    def set_pp_knee_mode(self, mode: int) -> None:
+        """Set the knee mode (Auto/Manual).
+
+        Parameters
+        ----------
+        mode : int
+            A :class:`~pysonycam.constants.PPKneeMode` value.
+        """
+        self.set_property(DeviceProperty.PP_KNEE_MODE, int(mode), size=1)
+
+    def set_pp_knee_autoset_max_point(self, value_pct_x100: int) -> None:
+        """Set the knee auto-set max point (value = percentage × 100).
+
+        E.g. 9750 represents 97.50%.
+        """
+        self.set_property(DeviceProperty.PP_KNEE_AUTOSET_MAX_POINT, value_pct_x100, size=2)
+
+    def set_pp_knee_autoset_sensitivity(self, sensitivity: int) -> None:
+        """Set the knee auto-set sensitivity (Low/Mid/High).
+
+        Parameters
+        ----------
+        sensitivity : int
+            A :class:`~pysonycam.constants.PPKneeAutoSensitivity` value.
+        """
+        self.set_property(DeviceProperty.PP_KNEE_AUTOSET_SENSITIVITY, int(sensitivity), size=1)
+
+    def set_pp_knee_manualset_point(self, value_pct_x100: int) -> None:
+        """Set the knee manual-set point (value = percentage × 100)."""
+        self.set_property(DeviceProperty.PP_KNEE_MANUALSET_POINT, value_pct_x100, size=2)
+
+    def set_pp_knee_manualset_slope(self, value: int) -> None:
+        """Set the knee manual-set slope (INT8 range)."""
+        self.set_property(DeviceProperty.PP_KNEE_MANUALSET_SLOPE, value, size=1)
+
+    def set_pp_color_mode(self, mode: int) -> None:
+        """Set the color mode of the active Picture Profile.
+
+        Parameters
+        ----------
+        mode : int
+            A :class:`~pysonycam.constants.PPColorMode` value.
+            E.g. ``PPColorMode.S_GAMUT3_CINE``, ``PPColorMode.BT2020``.
+        """
+        self.set_property(DeviceProperty.PP_COLOR_MODE, int(mode), size=2)
+
+    def set_pp_saturation(self, value: int) -> None:
+        """Set the saturation of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_SATURATION, value, size=1)
+
+    def set_pp_color_phase(self, value: int) -> None:
+        """Set the color phase of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_PHASE, value, size=1)
+
+    def set_pp_color_depth_red(self, value: int) -> None:
+        """Set the red color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_RED, value, size=1)
+
+    def set_pp_color_depth_green(self, value: int) -> None:
+        """Set the green color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_GREEN, value, size=1)
+
+    def set_pp_color_depth_blue(self, value: int) -> None:
+        """Set the blue color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_BLUE, value, size=1)
+
+    def set_pp_color_depth_cyan(self, value: int) -> None:
+        """Set the cyan color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_CYAN, value, size=1)
+
+    def set_pp_color_depth_magenta(self, value: int) -> None:
+        """Set the magenta color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_MAGENTA, value, size=1)
+
+    def set_pp_color_depth_yellow(self, value: int) -> None:
+        """Set the yellow color depth of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_COLOR_DEPTH_YELLOW, value, size=1)
+
+    def set_pp_detail_level(self, value: int) -> None:
+        """Set the detail level of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_DETAIL_LEVEL, value, size=1)
+
+    def set_pp_detail_adjust_mode(self, mode: int) -> None:
+        """Set the detail adjust mode (Auto/Manual).
+
+        Parameters
+        ----------
+        mode : int
+            A :class:`~pysonycam.constants.PPDetailAdjustMode` value.
+        """
+        self.set_property(DeviceProperty.PP_DETAIL_ADJUST_MODE, int(mode), size=1)
+
+    def set_pp_detail_vh_balance(self, value: int) -> None:
+        """Set the detail V/H balance of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_DETAIL_VH_BALANCE, value, size=1)
+
+    def set_pp_detail_bw_balance(self, balance: int) -> None:
+        """Set the detail B/W balance (Type1–Type5).
+
+        Parameters
+        ----------
+        balance : int
+            A :class:`~pysonycam.constants.PPDetailBWBalance` value.
+        """
+        self.set_property(DeviceProperty.PP_DETAIL_BW_BALANCE, int(balance), size=1)
+
+    def set_pp_detail_limit(self, value: int) -> None:
+        """Set the detail limit of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_DETAIL_LIMIT, value, size=1)
+
+    def set_pp_detail_crispening(self, value: int) -> None:
+        """Set the detail crispening of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_DETAIL_CRISPENING, value, size=1)
+
+    def set_pp_detail_highlight_detail(self, value: int) -> None:
+        """Set the detail highlight detail of the active Picture Profile (INT8 range)."""
+        self.set_property(DeviceProperty.PP_DETAIL_HIGHLIGHT_DETAIL, value, size=1)
+
+    def copy_picture_profile(self, dest_slot: int) -> None:
+        """Copy the currently active Picture Profile to a destination slot.
+
+        Parameters
+        ----------
+        dest_slot : int
+            Destination slot number (1–11).
+        """
+        self.set_property(DeviceProperty.COPY_PICTURE_PROFILE, int(dest_slot), size=1)
+
+    def apply_picture_profile_settings(self, settings: dict) -> None:
+        """Apply a dict of Picture Profile parameter adjustments in one call.
+
+        Selects the PP slot first (if ``"slot"`` is present), then writes
+        each named parameter.  Missing or ``None`` values are skipped.
+
+        Example dict::
+
+            {
+                "slot":        1,               # PictureProfileSlot or 1-11
+                "gamma":       PPGamma.S_LOG3,
+                "color_mode":  PPColorMode.S_GAMUT3_CINE,
+                "black_level": -3,
+                "saturation":  0,
+                "detail_level": -7,
+                "knee_mode":   PPKneeMode.AUTO,
+            }
+
+        Parameters
+        ----------
+        settings : dict
+            Keys mirror the ``set_pp_*`` method names (without the ``set_pp_``
+            prefix).
+        """
+        _map = [
+            ("slot",                      self.set_picture_profile),
+            ("gamma",                     self.set_pp_gamma),
+            ("black_level",               self.set_pp_black_level),
+            ("black_gamma_range",         self.set_pp_black_gamma_range),
+            ("black_gamma_level",         self.set_pp_black_gamma_level),
+            ("knee_mode",                 self.set_pp_knee_mode),
+            ("knee_autoset_max_point",    self.set_pp_knee_autoset_max_point),
+            ("knee_autoset_sensitivity",  self.set_pp_knee_autoset_sensitivity),
+            ("knee_manualset_point",      self.set_pp_knee_manualset_point),
+            ("knee_manualset_slope",      self.set_pp_knee_manualset_slope),
+            ("color_mode",               self.set_pp_color_mode),
+            ("saturation",               self.set_pp_saturation),
+            ("color_phase",              self.set_pp_color_phase),
+            ("color_depth_red",          self.set_pp_color_depth_red),
+            ("color_depth_green",        self.set_pp_color_depth_green),
+            ("color_depth_blue",         self.set_pp_color_depth_blue),
+            ("color_depth_cyan",         self.set_pp_color_depth_cyan),
+            ("color_depth_magenta",      self.set_pp_color_depth_magenta),
+            ("color_depth_yellow",       self.set_pp_color_depth_yellow),
+            ("detail_level",             self.set_pp_detail_level),
+            ("detail_adjust_mode",       self.set_pp_detail_adjust_mode),
+            ("detail_vh_balance",        self.set_pp_detail_vh_balance),
+            ("detail_bw_balance",        self.set_pp_detail_bw_balance),
+            ("detail_limit",             self.set_pp_detail_limit),
+            ("detail_crispening",        self.set_pp_detail_crispening),
+            ("detail_highlight_detail",  self.set_pp_detail_highlight_detail),
+        ]
+        for key, setter in _map:
+            val = settings.get(key)
+            if val is not None:
+                setter(int(val))
+
+    # ------------------------------------------------------------------
     # Phase 7 — Event system public API
     # ------------------------------------------------------------------
 
