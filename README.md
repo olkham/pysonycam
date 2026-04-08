@@ -276,20 +276,27 @@ Log levels:
 │   ├── format.py               # Human-readable value formatting
 │   └── exceptions.py           # Custom exception hierarchy
 ├── examples/                   # Python usage examples
-│   ├── basic_usage.py          # Read all properties
-│   ├── capture_photo.py        # Take a photo
-│   ├── burst_capture.py        # Multi-shot burst capture
-│   ├── continuous_burst.py     # Hardware-rate continuous burst
-│   ├── rapid_fire.py           # Rapid single-shot cycle
-│   ├── interactive_shutter.py  # Interactive keyboard-driven capture
-│   ├── live_viewfinder.py      # OpenCV LiveView + capture controls
-│   ├── liveview_stream.py      # Stream LiveView frames to disk
-│   ├── change_settings.py      # Modify camera settings
-│   ├── zoom_control.py         # Zoom in/out
-│   ├── astrophotography.py     # Long-exposure, bulb mode, and astrophotography viewfinder
-│   ├── timelapse.py            # Timelapse capture with optional live preview and video assembly
-│   ├── hfr_slow_motion.py      # HFR slow-motion recording control
-│   └── download_videos.py      # List and download MP4 videos from camera SD card
+│   ├── README.md               # Full example index with descriptions and dependency notes
+│   ├── requirements.txt        # Optional deps for OpenCV-based examples (cv2, numpy)
+│   ├── basic_usage.py          # Read and display all device properties
+│   ├── capture_photo.py        # Take a single photo
+│   ├── burst_capture.py        # Multi-shot burst (pulse S2 per shot)
+│   ├── continuous_burst.py     # Hardware-rate continuous burst (hold S2)
+│   ├── rapid_fire.py           # Rapid single-shot with full S1→S2 cycle
+│   ├── interactive_shutter.py  # Keyboard-driven AF+AE lock and shutter
+│   ├── live_viewfinder.py      # OpenCV LiveView window with capture controls
+│   ├── change_settings.py      # Read and modify exposure settings
+│   ├── zoom_control.py         # Optical zoom in/out
+│   ├── advanced_focus.py       # Focus point, magnifier, continuous drive, AF settings
+│   ├── astrophotography.py     # Long-exposure, bulb mode, and live astrophotography HUD
+│   ├── timelapse.py            # Fixed-interval timelapse with optional video assembly
+│   ├── hfr_slow_motion.py      # HFR slow-motion recording (auto-loop or interactive)
+│   ├── sq_mode_capture.py      # S&Q movie recording with event confirmation
+│   ├── custom_white_balance.py # Custom WB measurement sequence with event feedback
+│   ├── browse_and_download.py  # Browse card content, download full or proxy, delete
+│   ├── download_videos.py      # Download MP4s via bare PTP / SDIO fallback strategies
+│   ├── camera_status.py        # Full diagnostic report (firmware, lens, battery, slots)
+│   └── event_listener.py       # Register event callbacks and listen for 30 s
 ├── CameraRemoteCommadExamples/ # Sony C/C++ SDK reference examples
 │   ├── example-v2-linux/       # v2 protocol — Linux (libusb)
 │   ├── example-v2-windows/     # v2 protocol — Windows (MFC)
