@@ -1,5 +1,5 @@
 libusb1>=3.0.0
 
-# Optional: required for live_viewfinder.py
-opencv-python>=4.5
-numpy>=1.21
+# Optional GUI / computer-vision dependencies are NOT required by the library.
+# Install them only if you want to run the OpenCV-based examples:
+#   pip install -r examples/requirements.txt

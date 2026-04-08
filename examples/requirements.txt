@@ -1,0 +1,17 @@
+# Requirements for pysonycam examples
+#
+# The core library only needs libusb1. Install these extra packages to run the
+# examples that use OpenCV (live_viewfinder, timelapse, astrophotography,
+# hfr_slow_motion).
+#
+# Install everything:
+#   pip install -r examples/requirements.txt
+
+# Core library (install in editable mode from the repo root first):
+#   pip install -e .
+
+# Optional GUI / computer-vision dependencies:
+# Required by: live_viewfinder.py, timelapse.py, astrophotography.py,
+#              hfr_slow_motion.py
+opencv-python>=4.5
+numpy>=1.21
