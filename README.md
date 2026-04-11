@@ -31,6 +31,12 @@ Built from the [Sony Camera Remote Command SDK](https://developer.sony.com/) C/C
 pip install -e .
 ```
 
+### Install directly from GitHub
+
+```bash
+pip install git+https://github.com/olkham/pysonycam.git
+```
+
 ### Using the Setup Scripts
 
 **Linux / macOS:**
