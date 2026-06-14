@@ -511,7 +511,7 @@ class SonyCamera:
     def capture(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        save_to_camera: bool = False,
+        save_to_camera: Union[bool, int, SaveMedia] = False,
         timeout: float = 30.0,
         fast_mode: bool = False,
     ) -> bytes:
@@ -522,29 +522,59 @@ class SonyCamera:
         Parameters
         ----------
         output_path : str or Path, optional
-            File path to save the captured JPEG/RAW image.
-        save_to_camera : bool, optional
-            If True, images are saved to the camera's memory card.
-            If False (default), images are transferred to the host.
+            File path to save the captured JPEG/RAW image. Only meaningful when
+            the host receives the image (i.e. ``save_to_camera`` is ``False`` or
+            ``SaveMedia.HOST_AND_CAMERA``).
+        save_to_camera : bool or SaveMedia, optional
+            Controls where the captured image is stored:
+
+            * ``False`` (default) — image is transferred to the host
+              (``SaveMedia.HOST``) and returned as bytes.
+            * ``True`` — image is written to the camera's memory card only
+              (``SaveMedia.CAMERA``). Nothing is transferred to the host, so an
+              empty ``bytes`` object is returned.
+            * A :class:`SaveMedia` value — use that destination explicitly
+              (``HOST``, ``CAMERA`` or ``HOST_AND_CAMERA``).
         timeout : float
             Maximum seconds to wait for capture to complete.
 
         Returns
         -------
         bytes
-            The raw image data.
+            The raw image data when the host receives it, otherwise an empty
+            ``bytes`` object (camera-only capture).
 
         Example::
 
-            # Capture and save
+            # Capture and save to the host
             camera.capture("photo.jpg")
 
-            # Capture to memory
+            # Capture to host memory only
             data = camera.capture()
+
+            # Capture straight to the camera's memory card
+            camera.capture(save_to_camera=True)
         """
-        if not save_to_camera:
-            self.set_save_media(SaveMedia.HOST)
-            self._wait_for_property_value(DeviceProperty.SAVE_MEDIA, SaveMedia.HOST)
+        # Resolve the requested save destination. A plain bool keeps backward
+        # compatibility, while an explicit SaveMedia value is passed through.
+        if isinstance(save_to_camera, bool):
+            media = SaveMedia.CAMERA if save_to_camera else SaveMedia.HOST
+        else:
+            media = SaveMedia(int(save_to_camera))
+
+        # Whether the host will receive the image (and thus has something to
+        # download). Camera-only captures never produce a host object.
+        host_receives = media in (SaveMedia.HOST, SaveMedia.HOST_AND_CAMERA)
+
+        if not host_receives and output_path is not None:
+            logger.warning(
+                "output_path is ignored for camera-only capture "
+                "(save_to_camera=%s); the image is written to the memory card",
+                media.name,
+            )
+
+        self.set_save_media(media)
+        self._wait_for_property_value(DeviceProperty.SAVE_MEDIA, int(media))
 
         # Wait for LiveView to be ready
         self._wait_for_liveview()
@@ -554,6 +584,16 @@ class SonyCamera:
         self._wait_for_shooting_file_info_clear(timeout=timeout)
 
         self._fire_shutter(fast=fast_mode)
+
+        if not host_receives:
+            # Camera-only capture: the image is written to the memory card and is
+            # never transferred to the host, so SHOOTING_FILE_INFO bit 15 is not
+            # set and there is no object to download. Return empty bytes.
+            logger.info(
+                "Capture complete; image saved to camera memory card "
+                "(save media=%s)", media.name
+            )
+            return b""
 
         # Now wait for SHOOTING_FILE_INFO bit 15 to be set (image ready on host).
         deadline = time.monotonic() + timeout
