@@ -108,6 +108,16 @@ with SonyCamera() as camera:
     camera.authenticate()
     camera.set_mode("still")
     camera.capture("photo.jpg")
+
+    # Save to the camera's memory card instead (returns b"")
+    camera.capture(save_to_camera=True)
+
+    # Save to both the host and the memory card
+    from pysonycam import SaveMedia
+    camera.capture("photo.jpg", save_to_camera=SaveMedia.HOST_AND_CAMERA)
+
+    # Shorter shutter timing; re-fires once if the camera misses the press
+    camera.capture("photo.jpg", fast_mode=True)
 ```
 
 ### Change Camera Settings
@@ -213,7 +223,7 @@ with SonyCamera() as camera:
 | `set_white_balance(wb)` | Set white balance mode |
 | `set_exposure_compensation(value)` | Set EV compensation |
 | `set_save_media(media)` | Set save destination (host/camera/both) |
-| `capture(path=None)` | Capture a photo, optionally save to file → `bytes` |
+| `capture(path=None, save_to_camera=False, fast_mode=False)` | Capture a photo to the host, the memory card, or both → `bytes` |
 | `get_liveview_frame()` | Get one LiveView JPEG frame → `bytes` |
 | `liveview_stream(count)` | Yield LiveView frames as a generator |
 | `zoom_in(speed)` / `zoom_out(speed)` / `zoom_stop()` | Zoom control |

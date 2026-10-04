@@ -514,6 +514,7 @@ class SonyCamera:
         save_to_camera: Union[bool, int, SaveMedia] = False,
         timeout: float = 30.0,
         fast_mode: bool = False,
+        fast_retry_after: float = 5.0,
     ) -> bytes:
         """Capture a still image and optionally save it to a file.
 
@@ -537,6 +538,15 @@ class SonyCamera:
               (``HOST``, ``CAMERA`` or ``HOST_AND_CAMERA``).
         timeout : float
             Maximum seconds to wait for capture to complete.
+        fast_mode : bool
+            Use shorter shutter-button timing: S1 is held only until AF locks
+            and S2 is held for 0.2 s, instead of fixed 1.5 s delays.
+        fast_retry_after : float
+            Fast mode only, and only for captures the host receives. If
+            ``SHOOTING_FILE_INFO`` still reads ``0x0000`` after this many
+            seconds, the shutter is assumed to have been missed and is re-fired
+            once with normal timing. Set this above your exposure time when
+            using long exposures with ``fast_mode``.
 
         Returns
         -------
@@ -596,7 +606,13 @@ class SonyCamera:
             return b""
 
         # Now wait for SHOOTING_FILE_INFO bit 15 to be set (image ready on host).
-        deadline = time.monotonic() + timeout
+        # In fast mode the camera may drop the shutter press entirely (seen on
+        # the ZV-E10), leaving SHOOTING_FILE_INFO at 0x0000 forever.  If nothing
+        # shows up within ``fast_retry_after`` seconds, re-fire once using the
+        # slower, more reliable timing instead of polling until the timeout.
+        start = time.monotonic()
+        deadline = start + timeout
+        retried = not fast_mode
         val = 0
         while time.monotonic() < deadline:
             info = self.get_property(DeviceProperty.SHOOTING_FILE_INFO)
@@ -604,9 +620,29 @@ class SonyCamera:
             logger.debug("SHOOTING_FILE_INFO poll: 0x%04X", val)
             if val & 0x8000:
                 break
+            if (
+                not retried
+                and val == 0
+                and time.monotonic() - start >= fast_retry_after
+            ):
+                logger.warning(
+                    "No image after %.1fs in fast mode — the camera may have "
+                    "missed the shutter press; retrying with normal timing",
+                    fast_retry_after,
+                )
+                retried = True
+                self._fire_shutter(fast=False)
+                continue
             time.sleep(0.2)
         else:
-            raise SonyCameraError("Capture timed out waiting for image")
+            hint = (
+                " (fast_mode is on — try fast_mode=False if your camera "
+                "misses shutter presses)" if fast_mode else ""
+            )
+            raise SonyCameraError(
+                f"Capture timed out after {timeout:.1f}s waiting for image "
+                f"(SHOOTING_FILE_INFO=0x{val:04X}){hint}"
+            )
 
         logger.info("Capture complete (SHOOTING_FILE_INFO=0x%04X), downloading image", val)
 
@@ -1702,16 +1738,55 @@ class SonyCamera:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    # Minimum S2 hold time.  Matches the Sony C++ SDK example; shorter pulses
+    # are silently ignored by some bodies (e.g. ZV-E10), so the shutter never
+    # fires and SHOOTING_FILE_INFO stays at 0x0000.
+    _FAST_S2_HOLD = 0.2
+    # Maximum time fast mode waits for AF lock after pressing S1.
+    _FAST_AF_TIMEOUT = 1.0
+
     def _fire_shutter(self, fast: bool = False) -> None:
-        """Send the S1→S2→release sequence to the camera."""
-        delay = 0.1 if fast else 1.5
+        """Send the S1→S2→release sequence to the camera.
+
+        In normal mode a fixed 1.5 s delay is used between each step.  In fast
+        mode, S1 is held only until the camera reports AF lock (up to
+        :attr:`_FAST_AF_TIMEOUT`), and S2 is held for :attr:`_FAST_S2_HOLD` —
+        long enough for the camera to register the press.
+        """
         self.control_device(DeviceProperty.S1_BUTTON, 0x0002)
-        time.sleep(delay)
+        if fast:
+            self._wait_for_af_lock(self._FAST_AF_TIMEOUT)
+            hold = self._FAST_S2_HOLD
+        else:
+            time.sleep(1.5)
+            hold = 1.5
         self.control_device(DeviceProperty.S2_BUTTON, 0x0002)
-        time.sleep(delay)
+        time.sleep(hold)
         self.control_device(DeviceProperty.S2_BUTTON, 0x0001)
-        time.sleep(delay)
+        time.sleep(0.1 if fast else 1.5)
         self.control_device(DeviceProperty.S1_BUTTON, 0x0001)
+
+    def _wait_for_af_lock(self, timeout: float) -> bool:
+        """Poll AF_LOCK_INDICATION until focus locks or *timeout* expires.
+
+        Always waits at least 0.1 s so the camera registers the S1 press.
+        Returns True if focus locked; False otherwise (e.g. MF mode), in which
+        case the caller should proceed anyway.
+        """
+        time.sleep(0.1)
+        deadline = time.monotonic() + max(0.0, timeout - 0.1)
+        while True:
+            try:
+                af = self.get_property(DeviceProperty.AF_LOCK_INDICATION)
+                if af.current_value:
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+        logger.debug("AF did not lock within %.1fs — proceeding anyway", timeout)
+        return False
 
     def _wait_for_shooting_file_info_clear(self, timeout: float = 10.0) -> None:
         """Wait until SHOOTING_FILE_INFO bit 15 is clear (no stale image flag)."""
