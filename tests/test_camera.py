@@ -967,3 +967,139 @@ class TestGetLensInformation:
         cam._transport.receive.return_value = (_err_resp(), b"")
         with pytest.raises(TransactionError):
             cam.get_lens_information()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Still capture (save media + fast mode)
+# ══════════════════════════════════════════════════════════════════════════
+
+def _info(value):
+    info = MagicMock()
+    info.current_value = value
+    return info
+
+
+class _FakeClock:
+    """Monotonic clock advanced only by the patched time.sleep."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, secs):
+        self.now += secs
+
+
+def _setup_capture(cam, file_info_values, af_locked=True):
+    """Prepare *cam* so capture() can run without real hardware.
+
+    *file_info_values* is a callable mapping the number of shutter presses
+    so far to the SHOOTING_FILE_INFO value the camera reports.
+    """
+    state = {"s2_presses": 0}
+
+    def control_device(code, value, size=2):
+        if code == DeviceProperty.S2_BUTTON and value == 0x0002:
+            state["s2_presses"] += 1
+
+    def get_property(code):
+        if code == DeviceProperty.SHOOTING_FILE_INFO:
+            return _info(file_info_values(state["s2_presses"]))
+        if code == DeviceProperty.AF_LOCK_INDICATION:
+            return _info(1 if af_locked else 0)
+        return _info(0)
+
+    cam.control_device = MagicMock(side_effect=control_device)
+    cam.get_property = MagicMock(side_effect=get_property)
+    cam.set_save_media = MagicMock()
+    cam._wait_for_property_value = MagicMock()
+    cam._wait_for_liveview = MagicMock()
+    cam.get_object_info = MagicMock()
+    cam.get_object = MagicMock(return_value=b"JPEG")
+    return state
+
+
+class TestCaptureSaveMedia:
+    def test_default_saves_to_host_and_downloads(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        _setup_capture(cam, lambda presses: 0x8001 if presses else 0)
+        with patch("pysonycam.camera.time", clock):
+            data = cam.capture()
+        assert data == b"JPEG"
+        cam.set_save_media.assert_called_once_with(SaveMedia.HOST)
+
+    def test_save_to_camera_true_skips_download(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        _setup_capture(cam, lambda presses: 0)
+        with patch("pysonycam.camera.time", clock):
+            data = cam.capture(save_to_camera=True)
+        assert data == b""
+        cam.set_save_media.assert_called_once_with(SaveMedia.CAMERA)
+        cam.get_object.assert_not_called()
+
+    def test_host_and_camera_downloads(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        _setup_capture(cam, lambda presses: 0x8001 if presses else 0)
+        with patch("pysonycam.camera.time", clock):
+            data = cam.capture(save_to_camera=SaveMedia.HOST_AND_CAMERA)
+        assert data == b"JPEG"
+        cam.set_save_media.assert_called_once_with(SaveMedia.HOST_AND_CAMERA)
+
+
+class TestCaptureFastMode:
+    def test_fast_mode_holds_s2_long_enough(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        _setup_capture(cam, lambda presses: 0x8001 if presses else 0)
+        sleeps = []
+        clock_sleep = clock.sleep
+
+        def record(secs):
+            sleeps.append(secs)
+            clock_sleep(secs)
+
+        clock.sleep = record
+        with patch("pysonycam.camera.time", clock):
+            cam.capture(fast_mode=True)
+        assert SonyCamera._FAST_S2_HOLD in sleeps
+        assert all(s < 1.5 for s in sleeps)
+
+    def test_fast_mode_retries_missed_shutter(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        # First press is ignored by the camera; the retry produces an image.
+        state = _setup_capture(cam, lambda presses: 0x8001 if presses >= 2 else 0)
+        with patch("pysonycam.camera.time", clock):
+            data = cam.capture(fast_mode=True, fast_retry_after=2.0)
+        assert data == b"JPEG"
+        assert state["s2_presses"] == 2
+
+    def test_fast_mode_retries_only_once_then_times_out(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        state = _setup_capture(cam, lambda presses: 0)
+        with patch("pysonycam.camera.time", clock):
+            with pytest.raises(SonyCameraError, match="fast_mode"):
+                cam.capture(fast_mode=True, timeout=10.0, fast_retry_after=2.0)
+        assert state["s2_presses"] == 2
+
+    def test_normal_mode_never_retries(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        state = _setup_capture(cam, lambda presses: 0)
+        with patch("pysonycam.camera.time", clock):
+            with pytest.raises(SonyCameraError, match="timed out"):
+                cam.capture(timeout=10.0)
+        assert state["s2_presses"] == 1
+
+    def test_fast_mode_proceeds_without_af_lock(self):
+        cam = _make_camera()
+        clock = _FakeClock()
+        _setup_capture(cam, lambda presses: 0x8001 if presses else 0, af_locked=False)
+        with patch("pysonycam.camera.time", clock):
+            assert cam.capture(fast_mode=True) == b"JPEG"
